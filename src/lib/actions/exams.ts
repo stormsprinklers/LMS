@@ -10,6 +10,7 @@ import {
 } from "@/lib/exams/grade-attempt";
 import { userCanTakeExam, shuffleQuestionIds } from "@/lib/exams/access";
 import { effectiveAttemptsAllowed } from "@/lib/exams/attempt-state";
+import { holdsGradesUntilAdminPublish } from "@/lib/exams/grade-visibility";
 import type { Prisma } from "@prisma/client";
 
 export async function startExamAttempt(examId: string) {
@@ -218,7 +219,11 @@ async function submitExamAttemptInner(
       include: { module: true },
     }))?.module.courseId;
 
-  if (passed && courseId) {
+  const releaseGradesImmediately = !holdsGradesUntilAdminPublish(
+    attempt.exam.gradeVisibility,
+  );
+
+  if (passed && courseId && releaseGradesImmediately) {
     const rule = await prisma.certificationRule.findFirst({
       where: { courseId },
     });

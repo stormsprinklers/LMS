@@ -31,9 +31,7 @@ export function NewExamForm({
       attemptsAllowed: Number(fd.get("attemptsAllowed")),
       shuffleQuestions: fd.get("shuffleQuestions") === "on",
       gradeVisibility:
-        fd.get("gradeVisibility") === "LEARNER_VISIBLE"
-          ? "LEARNER_VISIBLE"
-          : "ADMIN_ONLY",
+        fd.get("hideGradesUntilPublish") === "on" ? "ADMIN_ONLY" : "LEARNER_VISIBLE",
       userIds: selectedUsers,
     });
     router.push(`/admin/exams/${id}`);
@@ -67,10 +65,23 @@ export function NewExamForm({
         <input type="checkbox" name="shuffleQuestions" className="h-5 w-5" />
         Shuffle questions for learners
       </label>
-      <select name="gradeVisibility" className={inputClass}>
-        <option value="ADMIN_ONLY">Grades private until published</option>
-        <option value="LEARNER_VISIBLE">Learner can see after publish</option>
-      </select>
+      <label className="flex min-h-11 items-start gap-3 text-sm">
+        <input
+          type="checkbox"
+          name="hideGradesUntilPublish"
+          defaultChecked
+          className="mt-0.5 h-5 w-5 shrink-0"
+        />
+        <span>
+          <span className="font-medium text-storm-navy">
+            Hold grades until I review and publish them
+          </span>
+          <span className="mt-1 block text-storm-navy/60">
+            Recommended when free-response questions need manual grading. Learners only
+            see scores after you publish grades from the exam settings page.
+          </span>
+        </span>
+      </label>
       <div>
         <p className="mb-2 text-sm font-medium">Assign learners</p>
         <UserAssignmentList

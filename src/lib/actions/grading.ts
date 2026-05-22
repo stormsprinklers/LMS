@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { auth } from "@/auth";
 import { canGradeExam } from "@/lib/auth-utils";
 import { computeAttemptScore, finalizeAttemptScore } from "@/lib/exams/grade-attempt";
+import { holdsGradesUntilAdminPublish } from "@/lib/exams/grade-visibility";
 import { revalidatePath } from "next/cache";
 
 export async function getGradingInbox() {
@@ -143,7 +144,7 @@ export async function submitManualGrade(
     if (
       passed &&
       attempt.exam.courseId &&
-      attempt.exam.gradeVisibility === "LEARNER_VISIBLE"
+      !holdsGradesUntilAdminPublish(attempt.exam.gradeVisibility)
     ) {
       const rule = await prisma.certificationRule.findFirst({
         where: { courseId: attempt.exam.courseId },

@@ -69,7 +69,7 @@ export function ExamDetailClient({
       attemptsAllowed: Number(fd.get("attemptsAllowed")),
       shuffleQuestions: fd.get("shuffleQuestions") === "on",
       gradeVisibility:
-        fd.get("gradeVisibility") === "LEARNER_VISIBLE" ? "LEARNER_VISIBLE" : "ADMIN_ONLY",
+        fd.get("hideGradesUntilPublish") === "on" ? "ADMIN_ONLY" : "LEARNER_VISIBLE",
       published: fd.get("published") === "on",
     });
     router.refresh();
@@ -103,26 +103,45 @@ export function ExamDetailClient({
           <input type="checkbox" name="published" defaultChecked={exam.published} className="h-5 w-5" />
           Published
         </label>
-        <select name="gradeVisibility" defaultValue={exam.gradeVisibility} className={inputClass}>
-          <option value="ADMIN_ONLY">Admin only until publish</option>
-          <option value="LEARNER_VISIBLE">Learner visible after publish</option>
-        </select>
+        <label className="flex min-h-11 items-start gap-3 text-sm">
+          <input
+            type="checkbox"
+            name="hideGradesUntilPublish"
+            defaultChecked={exam.gradeVisibility === "ADMIN_ONLY"}
+            className="mt-0.5 h-5 w-5 shrink-0"
+          />
+          <span>
+            <span className="font-medium text-storm-navy">
+              Hold grades until I review and publish them
+            </span>
+            <span className="mt-1 block text-storm-navy/60">
+              Learners can take the exam when it is published, but will not see scores or
+              feedback until you publish grades below. Uncheck to show results automatically
+              after each attempt is graded.
+            </span>
+          </span>
+        </label>
         <button type="submit" className={btnPrimary}>Save settings</button>
-        {exam.gradesPublishedAt ? (
-          <p className="text-sm text-emerald-700">
-            Grades published {new Date(exam.gradesPublishedAt).toLocaleString()}
-          </p>
-        ) : (
-          <button
-            type="button"
-            onClick={async () => {
-              await publishExamGrades(exam.id);
-              router.refresh();
-            }}
-            className={btnSecondary}
-          >
-            Publish grades to learners
-          </button>
+        {exam.gradeVisibility === "ADMIN_ONLY" && (
+          <>
+            {exam.gradesPublishedAt ? (
+              <p className="text-sm text-emerald-700">
+                Grades published to learners{" "}
+                {new Date(exam.gradesPublishedAt).toLocaleString()}
+              </p>
+            ) : (
+              <button
+                type="button"
+                onClick={async () => {
+                  await publishExamGrades(exam.id);
+                  router.refresh();
+                }}
+                className={btnSecondary}
+              >
+                Publish grades to learners
+              </button>
+            )}
+          </>
         )}
         <ExamCsvTools examId={exam.id} />
         <ExamDangerZone

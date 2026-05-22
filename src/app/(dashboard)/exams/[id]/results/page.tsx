@@ -10,6 +10,7 @@ import {
   effectiveAttemptsAllowed,
   getRemainingAttempts,
 } from "@/lib/exams/attempt-state";
+import { gradesVisibleToLearner } from "@/lib/exams/grade-visibility";
 import { notFound, redirect } from "next/navigation";
 
 export default async function ExamResultsPage({
@@ -47,13 +48,21 @@ export default async function ExamResultsPage({
 
   const isCompleted = Boolean(latest?.completedAt);
 
-  const gradesHidden =
-    exam.gradeVisibility === "ADMIN_ONLY" || !exam.gradesPublishedAt;
+  const gradesHidden = !gradesVisibleToLearner(
+    exam.gradeVisibility,
+    exam.gradesPublishedAt,
+    pendingReview,
+  );
 
   const showScore =
     isCompleted &&
     !pendingReview &&
-    (!gradesHidden || query.score !== undefined);
+    (gradesVisibleToLearner(
+      exam.gradeVisibility,
+      exam.gradesPublishedAt,
+      false,
+    ) ||
+      query.score !== undefined);
 
   const score = query.score ? Number(query.score) : latest?.score ?? undefined;
   const passed =
@@ -90,10 +99,11 @@ export default async function ExamResultsPage({
       {!pendingReview && isCompleted && gradesHidden && !query.score && (
         <div className="mt-6 rounded-xl bg-storm-light-grey/50 p-6">
           <p className="text-lg font-semibold text-storm-navy">
-            Submitted — awaiting grade publication
+            Submitted — grades not released yet
           </p>
           <p className="mt-2 text-sm text-storm-navy/70">
-            Your instructor has not published final grades yet.
+            Your attempt has been recorded. An instructor will review and publish your
+            score when ready.
           </p>
         </div>
       )}
@@ -138,7 +148,7 @@ export default async function ExamResultsPage({
         </Link>
       )}
 
-      {detailAttempt && exam.gradeVisibility === "LEARNER_VISIBLE" && (
+      {detailAttempt && !gradesHidden && (
         <ul className="mt-6 space-y-3">
           {detailAttempt.examAnswers.map((a) => (
             <li key={a.id} className="rounded-lg border p-3 text-sm">
