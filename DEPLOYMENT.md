@@ -10,11 +10,14 @@ The error `404: NOT_FOUND` with an ID like `sfo1::...` is **Vercel’s platform*
 
    | Variable | Example / notes |
    |----------|-----------------|
-   | `DATABASE_URL` | Neon connection string (`postgresql://...?sslmode=require`) |
+   | `DATABASE_URL` | Neon **pooled** connection string (hostname contains `-pooler`) |
+   | `DIRECT_DATABASE_URL` | Neon **direct** connection (no `-pooler` in host). Required for reliable `prisma migrate deploy` on Vercel. |
    | `AUTH_SECRET` | Random string (`openssl rand -base64 32`) |
    | `NEXTAUTH_URL` | `https://learning.stormsprinklers.com` |
 
    Enable each for **Production**, **Preview**, and **Development** so they are available at **build time** (required for `prisma migrate deploy`).
+
+   **Migrate timeout (P1002 / advisory lock):** Builds run migrations against `DIRECT_DATABASE_URL`. If only `DATABASE_URL` is set, the build script strips `-pooler` from the host as a fallback. If deploys still fail, add `DIRECT_DATABASE_URL` from Neon → Connection details → **Direct connection**, wait 2 minutes, and redeploy (avoid two production builds at once).
 
    Optional: `MUX_TOKEN_ID`, `MUX_TOKEN_SECRET`, `MUX_WEBHOOK_SECRET`, `BLOB_READ_WRITE_TOKEN`
 
