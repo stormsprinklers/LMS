@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "Exam" ADD COLUMN "archived" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "Exam" ADD COLUMN "archivedAt" TIMESTAMP(3);

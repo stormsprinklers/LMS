@@ -59,7 +59,7 @@ export async function getExamsForUser(userId: string): Promise<Exam[]> {
   const result: Exam[] = [];
 
   const assigned = await prisma.exam.findMany({
-    where: { published: true, assignments: { some: { userId } } },
+    where: { published: true, archived: false, assignments: { some: { userId } } },
     include: {
       course: true,
       lesson: { include: { module: { include: { course: true } } } },
@@ -74,7 +74,7 @@ export async function getExamsForUser(userId: string): Promise<Exam[]> {
   }
 
   const lessonExams = await prisma.exam.findMany({
-    where: { lessonId: { not: null }, published: true },
+    where: { lessonId: { not: null }, published: true, archived: false },
     include: {
       course: true,
       lesson: { include: { module: { include: { course: true } } } },

@@ -17,16 +17,30 @@ export default async function ExamImportPage({
     <>
       <PageHeader
         title={`Import questions — ${exam.title}`}
-        description="Upload a CSV file. Download the template for column format."
+        description="Upload or paste a CSV. Rows starting with # in question_type are ignored (instructions in the template)."
+        action={
+          <Link
+            href={`/admin/exams/${id}`}
+            className="text-sm font-medium text-storm-medium-blue no-underline"
+          >
+            ← Back to exam
+          </Link>
+        }
       />
-      <p className="mb-4">
-        <a href="/api/admin/exams/csv-template" className="text-sm text-storm-medium-blue">
-          Download CSV template
+      <p className="mb-4 flex flex-col gap-2 sm:flex-row sm:gap-4">
+        <a
+          href="/api/admin/exams/csv-template"
+          className="min-h-11 text-sm font-medium text-storm-medium-blue"
+          download
+        >
+          Download template
         </a>
-        {" · "}
-        <Link href={`/admin/exams/${id}`} className="text-sm text-storm-medium-blue no-underline">
-          Back to exam
-        </Link>
+        <a
+          href={`/api/admin/exams/${id}/export`}
+          className="min-h-11 text-sm font-medium text-storm-medium-blue"
+        >
+          Export current questions
+        </a>
       </p>
       <CsvImportForm examId={id} />
     </>

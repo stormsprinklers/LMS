@@ -1,6 +1,19 @@
 question_type,question_text,sort_order,option_a,option_b,option_c,option_d,correct_options,slider_min,slider_max,slider_correct,slider_tolerance,matching_pairs,free_response_max_length
-MULTIPLE_CHOICE,"What is 2+2?",0,2,3,4,5,D,,,,,,,
-MULTIPLE_SELECT,"Select prime numbers",1,2,3,4,5,B|D,,,,,,,
-FREE_RESPONSE,"Describe backflow prevention",2,,,,,,,,,,,500
-SLIDER,"Set pressure to 40 PSI",3,,,,,,10,80,40,2,,
-MATCHING,"Match terms",4,,,,,,,,,,"Valve:Controls flow;Head:Distributes water",
+#,"INSTRUCTIONS — Delete every row whose question_type starts with # before importing."
+#,"One question per row. Leave unused columns empty for that question type."
+#,
+#,"COLUMN: question_type — MULTIPLE_CHOICE | MULTIPLE_SELECT | FREE_RESPONSE | SLIDER | MATCHING"
+#,"COLUMN: question_text — Required prompt text"
+#,"COLUMN: sort_order — 0-based order (0 first); optional"
+#,"COLUMN: option_a … option_d — MC / multi-select answer choices"
+#,"COLUMN: correct_options — Single letter (D) or pipe-separated (A|C) for multi-select"
+#,"COLUMN: slider_min, slider_max, slider_correct, slider_tolerance — SLIDER only"
+#,"COLUMN: matching_pairs — MATCHING only. Format: ""Left1:Right1;Left2:Right2"" (min 2 pairs)"
+#,"COLUMN: free_response_max_length — FREE_RESPONSE only. Optional max characters"
+#,
+#,"EXAMPLES BELOW — Copy and edit, or replace with your own questions"
+MULTIPLE_CHOICE,"What is the primary purpose of a backflow preventer?",0,"Decorative lighting","Prevent contaminated water entering the supply","Increase water pressure","Filter sediment only",B,,,,,,
+MULTIPLE_SELECT,"Which are common irrigation head types? (select all that apply)",1,Rotor,Spray,"Drip emitter","Smoke detector",A|B|C,,,,,,
+FREE_RESPONSE,"Describe how you would locate a zone valve failure in the field.",2,,,,,,,,,,,1000
+SLIDER,"Set the recommended operating pressure (PSI) for a typical residential zone.",3,,,,,,20,80,45,3,,
+MATCHING,"Match each component to its function.",4,,,,,,,,,,"Zone valve:Controls water to a zone;Controller:Schedules run times;Rain sensor:Stops watering when wet",

@@ -7,6 +7,8 @@ import {
   publishExamGrades,
   deleteQuestion,
 } from "@/lib/actions/exams-admin";
+import { ExamCsvTools } from "@/components/exams/ExamCsvTools";
+import { ExamDangerZone } from "@/components/exams/ExamDangerZone";
 import { QuestionEditor } from "@/components/exams/QuestionEditor";
 import { UserAssignmentList } from "@/components/ui/UserAssignmentList";
 import Link from "next/link";
@@ -22,8 +24,12 @@ type ExamData = {
   shuffleQuestions: boolean;
   gradeVisibility: string;
   published: boolean;
+  archived: boolean;
+  archivedAt: Date | null;
   gradesPublishedAt: Date | null;
   course: { id: string; slug: string; title: string } | null;
+  lesson: { id: string; title: string } | null;
+  _count: { attempts: number };
   questions: {
     id: string;
     type: string;
@@ -118,24 +124,34 @@ export function ExamDetailClient({
             Publish grades to learners
           </button>
         )}
+        <ExamCsvTools examId={exam.id} />
+        <ExamDangerZone
+          examId={exam.id}
+          examTitle={exam.title}
+          archived={exam.archived}
+          hasLessonLink={!!exam.lesson}
+          attemptCount={exam._count.attempts}
+        />
       </form>
 
-      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:gap-3">
-        <Link href={`/admin/exams/${exam.id}/import`} className="min-h-11 text-sm text-storm-medium-blue no-underline flex items-center">
-          CSV import
+      {exam.archived && (
+        <p className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          This exam is archived
+          {exam.archivedAt
+            ? ` since ${new Date(exam.archivedAt).toLocaleString()}`
+            : ""}
+          . Restore it below to allow access again.
+        </p>
+      )}
+
+      {exam.course && (
+        <Link
+          href={`/admin/courses/${exam.course.slug}/admins`}
+          className="inline-flex min-h-11 items-center text-sm font-medium text-storm-medium-blue no-underline"
+        >
+          Manage course admins →
         </Link>
-        <a href={`/api/admin/exams/${exam.id}/export`} className="min-h-11 text-sm text-storm-medium-blue no-underline flex items-center">
-          Export CSV
-        </a>
-        {exam.course && (
-          <Link
-            href={`/admin/courses/${exam.course.slug}/admins`}
-            className="min-h-11 text-sm text-storm-medium-blue no-underline flex items-center"
-          >
-            Course admins
-          </Link>
-        )}
-      </div>
+      )}
 
       <div className="w-full rounded-xl border bg-white p-4 sm:p-5">
         <h2 className="font-medium text-storm-navy mb-3">Learner assignments</h2>

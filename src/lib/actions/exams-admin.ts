@@ -69,10 +69,48 @@ export async function updateExam(
   revalidatePath("/admin/exams");
 }
 
+export async function archiveExam(examId: string) {
+  await requireAdmin();
+  await prisma.exam.update({
+    where: { id: examId },
+    data: {
+      archived: true,
+      archivedAt: new Date(),
+      published: false,
+    },
+  });
+  revalidatePath(`/admin/exams/${examId}`);
+  revalidatePath("/admin/exams");
+  revalidatePath("/exams");
+  return { success: true as const };
+}
+
+export async function restoreExam(examId: string) {
+  await requireAdmin();
+  await prisma.exam.update({
+    where: { id: examId },
+    data: {
+      archived: false,
+      archivedAt: null,
+    },
+  });
+  revalidatePath(`/admin/exams/${examId}`);
+  revalidatePath("/admin/exams");
+  revalidatePath("/exams");
+  return { success: true as const };
+}
+
 export async function deleteExam(examId: string) {
   await requireAdmin();
+  const exam = await prisma.exam.findUnique({
+    where: { id: examId },
+    select: { lessonId: true, _count: { select: { attempts: true } } },
+  });
+  if (!exam) return { error: "Exam not found" };
   await prisma.exam.delete({ where: { id: examId } });
   revalidatePath("/admin/exams");
+  revalidatePath("/exams");
+  return { success: true as const };
 }
 
 export async function assignUsersToExam(examId: string, userIds: string[]) {
@@ -206,13 +244,27 @@ async function validateQuestionInput(input: QuestionInput) {
 
 export async function listExamsAdmin() {
   await requireAdmin();
-  return prisma.exam.findMany({
-    orderBy: { updatedAt: "desc" },
-    include: {
-      course: { select: { id: true, slug: true, title: true } },
-      _count: { select: { questions: true, assignments: true, attempts: true } },
-    },
-  });
+  const [active, archived] = await Promise.all([
+    prisma.exam.findMany({
+      where: { archived: false },
+      orderBy: { updatedAt: "desc" },
+      include: {
+        course: { select: { id: true, slug: true, title: true } },
+        lesson: { select: { id: true, title: true } },
+        _count: { select: { questions: true, assignments: true, attempts: true } },
+      },
+    }),
+    prisma.exam.findMany({
+      where: { archived: true },
+      orderBy: { archivedAt: "desc" },
+      include: {
+        course: { select: { id: true, slug: true, title: true } },
+        lesson: { select: { id: true, title: true } },
+        _count: { select: { questions: true, assignments: true, attempts: true } },
+      },
+    }),
+  ]);
+  return { active, archived };
 }
 
 export async function getExamAdmin(examId: string) {
@@ -221,6 +273,8 @@ export async function getExamAdmin(examId: string) {
     where: { id: examId },
     include: {
       course: { select: { id: true, slug: true, title: true } },
+      lesson: { select: { id: true, title: true } },
+      _count: { select: { attempts: true } },
       questions: {
         orderBy: { sortOrder: "asc" },
         include: { options: { orderBy: { sortOrder: "asc" } } },

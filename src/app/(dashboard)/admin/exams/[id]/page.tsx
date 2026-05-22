@@ -17,7 +17,11 @@ export default async function AdminExamPage({
     <>
       <PageHeader
         title={exam.title}
-        description={exam.course?.title ?? "Standalone exam"}
+        description={
+          exam.archived
+            ? `Archived · ${exam.course?.title ?? "Standalone exam"}`
+            : exam.course?.title ?? "Standalone exam"
+        }
         action={
           <Link href="/admin/exams" className="text-sm text-storm-medium-blue no-underline">
             ← All exams

@@ -1,7 +1,7 @@
 import type { QuestionType } from "@prisma/client";
 import type { QuestionInput } from "./types";
 
-const HEADERS = [
+export const CSV_HEADERS = [
   "question_type",
   "question_text",
   "sort_order",
@@ -18,14 +18,158 @@ const HEADERS = [
   "free_response_max_length",
 ] as const;
 
+/** Shown in admin UI; must match CSV_HEADERS order. */
+export const CSV_COLUMN_GUIDE: { column: string; description: string }[] = [
+  {
+    column: "question_type",
+    description:
+      "Required. MULTIPLE_CHOICE | MULTIPLE_SELECT | FREE_RESPONSE | SLIDER | MATCHING",
+  },
+  { column: "question_text", description: "Required. The question prompt shown to learners." },
+  {
+    column: "sort_order",
+    description: "Optional. Display order (0, 1, 2…). Defaults to row order if blank.",
+  },
+  {
+    column: "option_a … option_d",
+    description: "For MC / multi-select only. Answer choices A–D (use at least 2).",
+  },
+  {
+    column: "correct_options",
+    description:
+      "For MC / multi-select. Letters of correct answers: A, D, or A|C for multiple.",
+  },
+  {
+    column: "slider_min / slider_max",
+    description: "For SLIDER only. Numeric range for the slider control.",
+  },
+  {
+    column: "slider_correct",
+    description: "For SLIDER only. The correct value learners should select.",
+  },
+  {
+    column: "slider_tolerance",
+    description: "For SLIDER only. Allowed deviation from correct (e.g. 2 = ±2).",
+  },
+  {
+    column: "matching_pairs",
+    description:
+      'For MATCHING only. Pairs as Left:Right separated by semicolons, e.g. "Valve:Flow;Head:Spray".',
+  },
+  {
+    column: "free_response_max_length",
+    description: "For FREE_RESPONSE only. Optional character limit for the text box.",
+  },
+];
+
+function quoteCsv(value: string) {
+  if (/[",\n\r]/.test(value)) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
+}
+
+function commentRow(text: string) {
+  return `#,${quoteCsv(text)}`;
+}
+
 export function getCsvTemplateContent() {
-  const rows = [
-    HEADERS.join(","),
-    'MULTIPLE_CHOICE,"What is 2+2?",0,2,3,4,5,D,,,,,,,',
-    'MULTIPLE_SELECT,"Select prime numbers",1,2,3,4,5,B|D,,,,,,,',
-    'FREE_RESPONSE,"Describe backflow prevention",2,,,,,,,,,,,500',
-    'SLIDER,"Set pressure to 40 PSI",3,,,,,,10,80,40,2,,',
-    'MATCHING,"Match terms",4,,,,,,,,,,"Valve:Controls flow;Head:Distributes water",',
+  const rows: string[] = [
+    CSV_HEADERS.join(","),
+    commentRow("INSTRUCTIONS — Delete every row whose question_type starts with # before importing."),
+    commentRow("One question per row. Leave unused columns empty for that question type."),
+    commentRow(""),
+    commentRow("COLUMN: question_type — MULTIPLE_CHOICE | MULTIPLE_SELECT | FREE_RESPONSE | SLIDER | MATCHING"),
+    commentRow("COLUMN: question_text — Required prompt text"),
+    commentRow("COLUMN: sort_order — 0-based order (0 first); optional"),
+    commentRow("COLUMN: option_a … option_d — MC / multi-select answer choices"),
+    commentRow("COLUMN: correct_options — Single letter (D) or pipe-separated (A|C) for multi-select"),
+    commentRow("COLUMN: slider_min, slider_max, slider_correct, slider_tolerance — SLIDER only"),
+    commentRow('COLUMN: matching_pairs — MATCHING only. Format: "Left1:Right1;Left2:Right2" (min 2 pairs)'),
+    commentRow("COLUMN: free_response_max_length — FREE_RESPONSE only. Optional max characters"),
+    commentRow(""),
+    commentRow("EXAMPLES BELOW — Copy and edit, or replace with your own questions"),
+    [
+      "MULTIPLE_CHOICE",
+      quoteCsv("What is the primary purpose of a backflow preventer?"),
+      "0",
+      quoteCsv("Decorative lighting"),
+      quoteCsv("Prevent contaminated water entering the supply"),
+      quoteCsv("Increase water pressure"),
+      quoteCsv("Filter sediment only"),
+      "B",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+    ].join(","),
+    [
+      "MULTIPLE_SELECT",
+      quoteCsv("Which are common irrigation head types? (select all that apply)"),
+      "1",
+      quoteCsv("Rotor"),
+      quoteCsv("Spray"),
+      quoteCsv("Drip emitter"),
+      quoteCsv("Smoke detector"),
+      "A|B|C",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+    ].join(","),
+    [
+      "FREE_RESPONSE",
+      quoteCsv("Describe how you would locate a zone valve failure in the field."),
+      "2",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "1000",
+    ].join(","),
+    [
+      "SLIDER",
+      quoteCsv("Set the recommended operating pressure (PSI) for a typical residential zone."),
+      "3",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "20",
+      "80",
+      "45",
+      "3",
+      "",
+      "",
+    ].join(","),
+    [
+      "MATCHING",
+      quoteCsv("Match each component to its function."),
+      "4",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      quoteCsv("Zone valve:Controls water to a zone;Controller:Schedules run times;Rain sensor:Stops watering when wet"),
+      "",
+    ].join(","),
   ];
   return rows.join("\n");
 }
@@ -51,6 +195,18 @@ function parseCsvLine(line: string): string[] {
 
 function col(row: Record<string, string>, key: string) {
   return (row[key] ?? "").trim();
+}
+
+function isSkippableRow(typeRaw: string, text: string) {
+  if (!typeRaw) return true;
+  if (typeRaw.startsWith("#")) return true;
+  if (typeRaw === "INSTRUCTIONS" || typeRaw === "COLUMN" || typeRaw === "EXAMPLE") {
+    return true;
+  }
+  if (!text && !["MULTIPLE_CHOICE", "MULTIPLE_SELECT", "FREE_RESPONSE", "SLIDER", "MATCHING"].includes(typeRaw)) {
+    return true;
+  }
+  return false;
 }
 
 function parseMatchingPairs(raw: string) {
@@ -84,10 +240,10 @@ export function parseQuestionsCsv(csvText: string): {
     .map((l) => l.trim())
     .filter((l) => l.length > 0);
   if (lines.length < 2) {
-    return { questions: [], errors: ["CSV must include header and at least one row"] };
+    return { questions: [], errors: ["CSV must include header and at least one question row"] };
   }
 
-  const header = parseCsvLine(lines[0]).map((h) => h.toLowerCase());
+  const header = parseCsvLine(lines[0]).map((h) => h.toLowerCase().replace(/^\uFEFF/, ""));
   const errors: string[] = [];
   const questions: QuestionInput[] = [];
 
@@ -101,12 +257,15 @@ export function parseQuestionsCsv(csvText: string): {
     const lineNum = i + 1;
     const typeRaw = col(row, "question_type").toUpperCase();
     const text = col(row, "question_text");
+
+    if (isSkippableRow(typeRaw, text)) continue;
+
     if (!text) {
       errors.push(`Line ${lineNum}: question_text is required`);
       continue;
     }
 
-    const sortOrder = parseInt(col(row, "sort_order") || String(i - 1), 10) || i - 1;
+    const sortOrder = parseInt(col(row, "sort_order") || String(questions.length), 10);
 
     if (
       ![
@@ -192,6 +351,57 @@ export function parseQuestionsCsv(csvText: string): {
   return { questions, errors };
 }
 
+function buildQuestionRow(
+  q: {
+    type: QuestionType;
+    text: string;
+    sortOrder: number;
+    config: unknown;
+    options: { text: string; isCorrect: boolean; sortOrder: number }[];
+  },
+) {
+  const opts = [...q.options].sort((a, b) => a.sortOrder - b.sortOrder);
+  const letters = ["a", "b", "c", "d"];
+  const correct = opts
+    .map((o, i) => (o.isCorrect ? letters[i]?.toUpperCase() : null))
+    .filter(Boolean)
+    .join("|");
+
+  const cfg = q.config as Record<string, unknown> | null;
+  const cells: string[] = [
+    q.type,
+    quoteCsv(q.text),
+    String(q.sortOrder),
+    opts[0] ? quoteCsv(opts[0].text) : "",
+    opts[1] ? quoteCsv(opts[1].text) : "",
+    opts[2] ? quoteCsv(opts[2].text) : "",
+    opts[3] ? quoteCsv(opts[3].text) : "",
+    correct,
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+  ];
+
+  if (q.type === "SLIDER" && cfg) {
+    cells[8] = String(cfg.min ?? "");
+    cells[9] = String(cfg.max ?? "");
+    cells[10] = String(cfg.correctValue ?? "");
+    cells[11] = String(cfg.tolerance ?? "");
+  } else if (q.type === "MATCHING" && cfg?.pairs) {
+    const pairs = (cfg.pairs as { left: string; right: string }[])
+      .map((p) => `${p.left}:${p.right}`)
+      .join(";");
+    cells[12] = quoteCsv(pairs);
+  } else if (q.type === "FREE_RESPONSE" && cfg?.maxLength) {
+    cells[13] = String(cfg.maxLength);
+  }
+
+  return cells.join(",");
+}
+
 export function questionsToCsv(
   questions: {
     type: QuestionType;
@@ -201,42 +411,5 @@ export function questionsToCsv(
     options: { text: string; isCorrect: boolean; sortOrder: number }[];
   }[],
 ) {
-  const rows = [HEADERS.join(",")];
-  for (const q of questions) {
-    const opts = [...q.options].sort((a, b) => a.sortOrder - b.sortOrder);
-    const letters = ["a", "b", "c", "d"];
-    const row: string[] = [];
-    row.push(q.type);
-    row.push(`"${q.text.replace(/"/g, '""')}"`);
-    row.push(String(q.sortOrder));
-    for (let i = 0; i < 4; i++) {
-      row.push(opts[i] ? `"${opts[i].text.replace(/"/g, '""')}"` : "");
-    }
-    const correct = opts
-      .map((o, i) => (o.isCorrect ? letters[i]?.toUpperCase() : null))
-      .filter(Boolean)
-      .join("|");
-    row.push(correct);
-    const cfg = q.config as Record<string, unknown> | null;
-    if (q.type === "SLIDER" && cfg) {
-      row.push("", "", "", "", correct);
-      row.push(String(cfg.min ?? ""));
-      row.push(String(cfg.max ?? ""));
-      row.push(String(cfg.correctValue ?? ""));
-      row.push(String(cfg.tolerance ?? ""));
-      row.push("");
-      row.push("");
-    } else if (q.type === "MATCHING" && cfg?.pairs) {
-      const pairs = (cfg.pairs as { left: string; right: string }[])
-        .map((p) => `${p.left}:${p.right}`)
-        .join(";");
-      row.push("", "", "", "", correct, "", "", "", "", pairs, "");
-    } else if (q.type === "FREE_RESPONSE" && cfg) {
-      row.push("", "", "", "", correct, "", "", "", "", "", String(cfg.maxLength ?? ""));
-    } else {
-      row.push("", "", "", "", correct, "", "", "", "", "", "");
-    }
-    rows.push(row.join(","));
-  }
-  return rows.join("\n");
+  return [CSV_HEADERS.join(","), ...questions.map(buildQuestionRow)].join("\n");
 }

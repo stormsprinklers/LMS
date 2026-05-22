@@ -8,7 +8,9 @@ export async function userCanTakeExam(userId: string, examId: string) {
       assignments: { where: { userId } },
     },
   });
-  if (!exam || !exam.published) return { allowed: false, reason: "Exam not found" };
+  if (!exam || !exam.published || exam.archived) {
+    return { allowed: false, reason: "Exam not found" };
+  }
 
   const assignment = exam.assignments[0];
   if (assignment) return { allowed: true, exam };
