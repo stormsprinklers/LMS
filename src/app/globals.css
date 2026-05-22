@@ -1,0 +1,37 @@
+@import "tailwindcss";
+
+:root {
+  --storm-pink: #f17388;
+  --storm-light-blue: #c2e4f0;
+  --storm-medium-blue: #4c9bc8;
+  --storm-navy: #102341;
+  --storm-white: #ffffff;
+  --storm-black: #000000;
+  --storm-light-grey: #f0f0f0;
+
+  --background: var(--storm-light-grey);
+  --foreground: var(--storm-navy);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-storm-pink: var(--storm-pink);
+  --color-storm-light-blue: var(--storm-light-blue);
+  --color-storm-medium-blue: var(--storm-medium-blue);
+  --color-storm-navy: var(--storm-navy);
+  --color-storm-light-grey: var(--storm-light-grey);
+  --font-sans: var(--font-body);
+  --font-title: var(--font-title);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-body), system-ui, sans-serif;
+}
+
+.font-title {
+  font-family: var(--font-title), system-ui, sans-serif;
+  letter-spacing: 0.02em;
+}
