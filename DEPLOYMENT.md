@@ -28,12 +28,25 @@ The error `404: NOT_FOUND` with an ID like `sfo1::...` is **Vercel’s platform*
 
 6. **Redeploy** — After env vars are set: Deployments → Redeploy production.
 
-## After first deploy
+## Admin account (automatic on Vercel)
 
-```bash
-# One-time: seed demo users (run locally with production DATABASE_URL or use Vercel CLI)
-npm run db:seed
-```
+On each deploy, the build runs `prisma/seed-production.ts` after migrations. It **only runs when no admin exists** — safe to redeploy without wiping data.
+
+Default login (if you do not set custom env vars):
+
+- Email: `admin@stormsprinklers.com`
+- Password: `admin123!`
+
+**Recommended on Vercel** — add:
+
+| Variable | Purpose |
+|----------|---------|
+| `ADMIN_EMAIL` | Admin login email (optional, default above) |
+| `ADMIN_INITIAL_PASSWORD` | Strong password set on first deploy |
+
+After the first successful deploy with users in the DB, change the password via Admin → Users or update the user in Neon.
+
+`npm run db:seed` is only for **local development** (resets the database).
 
 ## Webhook URL for Mux
 

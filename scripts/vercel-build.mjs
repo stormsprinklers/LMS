@@ -21,5 +21,8 @@ if (!process.env.DATABASE_URL) {
 console.log("Running prisma migrate deploy…");
 execSync("npx prisma migrate deploy", { stdio: "inherit" });
 
+console.log("Running production seed (skipped if admin already exists)…");
+execSync("npx tsx prisma/seed-production.ts", { stdio: "inherit" });
+
 console.log("Running next build…");
 execSync("npx next build", { stdio: "inherit" });

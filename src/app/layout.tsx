@@ -22,8 +22,8 @@ export const metadata: Metadata = {
   description:
     "Employee learning platform for courses, video training, manuals, exams, and certifications.",
   icons: {
-    icon: "/brand/storm-sprinklers-logo.png",
-    apple: "/brand/storm-sprinklers-logo.png",
+    icon: "/brand/storm-sprinklers-logo-transparent.png",
+    apple: "/brand/storm-sprinklers-logo-transparent.png",
   },
 };
 

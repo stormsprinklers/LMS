@@ -1,7 +1,7 @@
 import Image from "next/image";
 import { cn } from "@/lib/utils";
 
-const LOGO_SRC = "/brand/storm-sprinklers-logo.png";
+const LOGO_SRC = "/brand/storm-sprinklers-logo-transparent.png";
 
 type LogoProps = {
   className?: string;
@@ -26,7 +26,8 @@ export function Logo({
         width={width}
         height={height}
         priority={priority}
-        className="h-auto w-auto object-contain"
+        unoptimized
+        className="h-auto w-auto object-contain bg-transparent"
         style={{ maxWidth: width, maxHeight: height }}
       />
       {showText && (
@@ -57,7 +58,8 @@ export function LogoMark({
       width={size}
       height={size}
       priority={priority}
-      className={cn("mx-auto object-contain", className)}
+      unoptimized
+      className={cn("mx-auto object-contain bg-transparent", className)}
     />
   );
 }
