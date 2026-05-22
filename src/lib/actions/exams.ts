@@ -11,6 +11,10 @@ import {
 import { userCanTakeExam, shuffleQuestionIds } from "@/lib/exams/access";
 import { effectiveAttemptsAllowed } from "@/lib/exams/attempt-state";
 import { holdsGradesUntilAdminPublish } from "@/lib/exams/grade-visibility";
+import {
+  notifyGradersExamSubmitted,
+  resolveExamGraderIds,
+} from "@/lib/exams/grader-notify";
 import type { Prisma } from "@prisma/client";
 
 export async function startExamAttempt(examId: string) {
@@ -133,6 +137,7 @@ async function submitExamAttemptInner(
   }
 
   let needsManual = false;
+  const manualQuestionIds: string[] = [];
   const answerRows: { autoScore: number | null; manualScore: number | null }[] =
     [];
 
@@ -153,59 +158,43 @@ async function submitExamAttemptInner(
 
     if (manual) {
       needsManual = true;
-      const courseAdmins = attempt.exam.courseId
-        ? await prisma.courseAdmin.findMany({
-            where: { courseId: attempt.exam.courseId },
-          })
-        : [];
-      const graders =
-        courseAdmins.length > 0
-          ? courseAdmins
-          : await prisma.examGrader.findMany({ where: { examId: attempt.examId } });
-      const fallbackAdmins = await prisma.user.findMany({
-        where: { role: "ADMIN" },
-        take: 5,
-      });
-      const notifyUsers =
-        graders.length > 0
-          ? graders.map((g) => g.userId)
-          : fallbackAdmins.map((a) => a.id);
-
-      const graderIds = [...new Set(notifyUsers)];
-      const existingTask = await prisma.gradingTask.findUnique({
-        where: {
-          attemptId_questionId: {
-            attemptId,
-            questionId: question.id,
-          },
-        },
-      });
-      if (!existingTask && graderIds.length > 0) {
-        await prisma.gradingTask.create({
-          data: {
-            attemptId,
-            questionId: question.id,
-            courseId: attempt.exam.courseId,
-            assignedToUserId: graderIds[0],
-          },
-        });
-      }
-      for (const graderId of graderIds) {
-        await prisma.notification.create({
-          data: {
-            userId: graderId,
-            type: "FREE_RESPONSE_TO_GRADE",
-            title: `Grade free response: ${attempt.exam.title}`,
-            body: `${session.user.name ?? session.user.email} submitted a response for manual grading.`,
-            link: `/admin/grading/${attemptId}`,
-            metadata: { attemptId, questionId: question.id },
-          },
-        });
-      }
+      manualQuestionIds.push(question.id);
     }
   }
 
   if (needsManual) {
+    const graderIds = await resolveExamGraderIds(
+      attempt.examId,
+      attempt.exam.courseId,
+    );
+    const primaryGraderId = graderIds[0];
+
+    for (const questionId of manualQuestionIds) {
+      const existingTask = await prisma.gradingTask.findUnique({
+        where: {
+          attemptId_questionId: { attemptId, questionId },
+        },
+      });
+      if (!existingTask && primaryGraderId) {
+        await prisma.gradingTask.create({
+          data: {
+            attemptId,
+            questionId,
+            courseId: attempt.exam.courseId,
+            assignedToUserId: primaryGraderId,
+          },
+        });
+      }
+    }
+
+    await notifyGradersExamSubmitted({
+      attemptId,
+      examId: attempt.examId,
+      examTitle: attempt.exam.title,
+      courseId: attempt.exam.courseId,
+      learnerLabel: session.user.name ?? session.user.email ?? "A learner",
+      manualQuestionCount: manualQuestionIds.length,
+    });
     await prisma.examAttempt.update({
       where: { id: attemptId },
       data: {
@@ -216,6 +205,7 @@ async function submitExamAttemptInner(
       },
     });
     revalidatePath("/exams");
+    revalidatePath("/admin/grading");
     return { pendingReview: true };
   }
 

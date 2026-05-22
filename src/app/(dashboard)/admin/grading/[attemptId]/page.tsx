@@ -10,35 +10,27 @@ export default async function GradeAttemptPage({
   params: Promise<{ attemptId: string }>;
 }) {
   const { attemptId } = await params;
-  const attempt = await getAttemptForGrading(attemptId);
-  if (!attempt) notFound();
-
-  const pendingTasks = attempt.gradingTasks;
+  const data = await getAttemptForGrading(attemptId);
+  if (!data) notFound();
 
   return (
     <>
       <PageHeader
-        title={`Grade: ${attempt.exam.title}`}
-        description={`${attempt.user.name ?? attempt.user.email}`}
+        title={`Grade: ${data.examTitle}`}
+        description={data.learnerName}
         action={
-          <Link href="/admin/grading" className="text-sm text-storm-medium-blue no-underline">
+          <Link
+            href="/admin/grading"
+            className="text-sm text-storm-medium-blue no-underline"
+          >
             ← Inbox
           </Link>
         }
       />
       <GradeAttemptForm
-        attemptId={attemptId}
-        tasks={pendingTasks.map((t) => {
-          const answer = attempt.examAnswers.find((a) => a.questionId === t.questionId);
-          const value = answer?.value as { text?: string } | null;
-          const cfg = t.question.config as { rubric?: string } | null;
-          return {
-            questionId: t.questionId,
-            questionText: t.question.text,
-            learnerAnswer: value?.text ?? JSON.stringify(answer?.value ?? ""),
-            rubric: cfg?.rubric,
-          };
-        })}
+        attemptId={data.attemptId}
+        questions={data.questions}
+        pendingManualCount={data.pendingManualCount}
       />
     </>
   );

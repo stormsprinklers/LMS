@@ -19,7 +19,7 @@ export default async function GradingInboxPage() {
     <>
       <PageHeader
         title="Grading inbox"
-        description="Free-response submissions awaiting manual grading. Archive to remove from the inbox without deleting attempt data."
+        description="Exams submitted for review. Open an attempt to grade free-response answers and adjust scores, then save once."
         action={<AdminArchivedLink />}
       />
       <ul className="space-y-3">
@@ -31,7 +31,7 @@ export default async function GradingInboxPage() {
               key={attemptId}
               href={`/admin/grading/${attemptId}`}
               title={first.attempt.exam.title}
-              subtitle={`${learner} · ${group.length} question${group.length > 1 ? "s" : ""} pending · tap title to grade`}
+              subtitle={`${learner} · submitted for review · tap to grade attempt`}
               type="gradingAttempt"
               id={attemptId}
             />
