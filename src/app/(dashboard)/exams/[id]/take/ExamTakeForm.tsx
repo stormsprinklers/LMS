@@ -41,6 +41,10 @@ export function ExamTakeForm({
     router.push(`/exams/${examId}/results?score=${result.score}&passed=${result.passed}`);
   }
 
+  if (questions.length === 0) {
+    return null;
+  }
+
   return (
     <form onSubmit={handleSubmit} className="mt-6 space-y-6 pb-24 md:pb-8">
       <p className="text-sm text-storm-navy/60">

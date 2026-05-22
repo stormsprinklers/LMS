@@ -68,10 +68,26 @@ export async function submitExamAttempt(
     return { error: "Invalid attempt." };
   }
 
-  const order = (attempt.questionOrder as string[]) ?? [];
-  const questions = attempt.exam.questions.filter((q) =>
-    order.length ? order.includes(q.id) : true,
-  );
+  const existingAnswers = await prisma.examAnswer.count({
+    where: { attemptId },
+  });
+  if (existingAnswers > 0) {
+    return { error: "This attempt was already submitted." };
+  }
+
+  const order = Array.isArray(attempt.questionOrder)
+    ? (attempt.questionOrder as string[])
+    : [];
+  let questions = order.length
+    ? attempt.exam.questions.filter((q) => order.includes(q.id))
+    : [...attempt.exam.questions];
+  if (questions.length === 0) {
+    questions = [...attempt.exam.questions];
+  }
+
+  if (questions.length === 0) {
+    return { error: "This exam has no questions." };
+  }
 
   let needsManual = false;
   const answerRows: { autoScore: number | null; manualScore: number | null }[] =

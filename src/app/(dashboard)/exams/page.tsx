@@ -16,6 +16,7 @@ const statusConfig: Record<
   failed: { label: "Retake required", variant: "pink" },
   locked: { label: "Complete prerequisites", variant: "default" },
   pending: { label: "Under review", variant: "info" },
+  in_progress: { label: "In progress", variant: "warning" },
 };
 
 export const metadata = { title: "Exams" };
@@ -34,10 +35,15 @@ export default async function ExamsPage() {
       <div className="space-y-4">
         {exams.map((exam) => {
           const { label, variant } = statusConfig[exam.status];
-          const canTake = exam.status === "available" || exam.status === "failed";
+          const canTake =
+            exam.status === "available" ||
+            exam.status === "failed" ||
+            exam.status === "in_progress";
           const viewResults =
             exam.status === "passed" ||
             exam.status === "pending";
+          const startLabel =
+            exam.status === "in_progress" ? "Continue exam" : "Start exam";
 
           return (
             <Card key={exam.id}>
@@ -70,7 +76,7 @@ export default async function ExamsPage() {
                       href={`/exams/${exam.id}/take`}
                       className="flex min-h-11 items-center justify-center rounded-lg bg-storm-medium-blue px-4 py-2.5 text-center text-sm font-semibold text-white no-underline transition-opacity hover:opacity-90"
                     >
-                      Start exam
+                      {startLabel}
                     </Link>
                   ) : viewResults ? (
                     <Link

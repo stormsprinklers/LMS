@@ -6,6 +6,11 @@ async function resolveExamStatus(
   userId: string,
   examId: string,
 ): Promise<Exam["status"]> {
+  const inProgress = await prisma.examAttempt.findFirst({
+    where: { userId, examId, status: "IN_PROGRESS" },
+  });
+  if (inProgress) return "in_progress";
+
   const passed = await prisma.examAttempt.findFirst({
     where: { userId, examId, passed: true },
   });

@@ -1,11 +1,17 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth-utils";
-import { getExamForTake, countAttempts } from "@/lib/repositories/exams";
+import { getExamForTake } from "@/lib/repositories/exams";
 import { startExamAttempt } from "@/lib/actions/exams";
-import { prisma } from "@/lib/db";
 import { ExamTakeForm } from "./ExamTakeForm";
 import { userCanTakeExam } from "@/lib/exams/access";
+import {
+  countCompletedAttempts,
+  getInProgressAttempt,
+  getRemainingAttempts,
+  resolveQuestionOrder,
+} from "@/lib/exams/attempt-state";
+import { prisma } from "@/lib/db";
 
 export default async function ExamTakePage({
   params,
@@ -26,31 +32,49 @@ export default async function ExamTakePage({
   });
   if (passed) redirect(`/exams/${id}/results`);
 
-  const attempts = await countAttempts(session.user.id, id);
-  if (attempts >= exam.attemptsAllowed) {
-    redirect(`/exams/${id}/results`);
-  }
+  let attempt = await getInProgressAttempt(session.user.id, id);
 
-  let inProgress = await prisma.examAttempt.findFirst({
-    where: { userId: session.user.id, examId: id, status: "IN_PROGRESS" },
-  });
+  if (!attempt) {
+    const remaining = await getRemainingAttempts(
+      session.user.id,
+      id,
+      exam.attemptsAllowed,
+    );
+    if (remaining <= 0) {
+      redirect(`/exams/${id}/results`);
+    }
 
-  if (!inProgress) {
     const started = await startExamAttempt(id);
-    if (started.error || !started.attemptId) redirect("/exams");
-    inProgress = await prisma.examAttempt.findUnique({
+    if (started.error || !started.attemptId) {
+      redirect("/exams");
+    }
+    attempt = await prisma.examAttempt.findUnique({
       where: { id: started.attemptId },
     });
   }
 
-  if (!inProgress) notFound();
+  if (!attempt) notFound();
 
-  const order = (inProgress.questionOrder as string[]) ?? [];
-  const ordered = order.length
-    ? order
-        .map((qid) => exam.questions.find((q) => q.id === qid))
-        .filter(Boolean)
-    : exam.questions;
+  const ordered = resolveQuestionOrder(attempt.questionOrder, exam.questions);
+
+  if (ordered.length === 0) {
+    return (
+      <>
+        <Link href="/exams" className="text-sm text-storm-medium-blue no-underline">
+          ← Back to exams
+        </Link>
+        <h1 className="font-title mt-4 text-2xl font-bold text-storm-navy">
+          {exam.title}
+        </h1>
+        <div className="mt-6 rounded-xl border border-amber-300 bg-amber-50 p-6">
+          <p className="font-medium text-storm-navy">This exam has no questions yet</p>
+          <p className="mt-2 text-sm text-storm-navy/70">
+            An administrator must add questions before you can take this exam.
+          </p>
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
@@ -64,14 +88,14 @@ export default async function ExamTakePage({
         {exam.timeLimitMinutes} minutes · {exam.passingScore}% required to pass
       </p>
       <ExamTakeForm
-        attemptId={inProgress.id}
+        attemptId={attempt.id}
         examId={id}
         questions={ordered.map((q) => ({
-          id: q!.id,
-          type: q!.type,
-          text: q!.text,
-          config: q!.config,
-          options: q!.options.map((o) => ({ id: o.id, text: o.text })),
+          id: q.id,
+          type: q.type,
+          text: q.text,
+          config: q.config,
+          options: q.options.map((o) => ({ id: o.id, text: o.text })),
         }))}
         timeLimitMinutes={exam.timeLimitMinutes}
       />
