@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth-utils";
 import { revalidatePath } from "next/cache";
 import type { GradeVisibility, QuestionType } from "@prisma/client";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { parseQuestionsCsv } from "@/lib/exams/csv-import";
 import type { QuestionInput } from "@/lib/exams/types";
 
@@ -196,6 +196,83 @@ export async function addQuestion(examId: string, input: QuestionInput) {
   });
   revalidatePath(`/admin/exams/${examId}`);
   return question.id;
+}
+
+type QuestionOptionUpdate = {
+  id?: string;
+  text: string;
+  isCorrect: boolean;
+};
+
+export async function updateQuestion(
+  examId: string,
+  questionId: string,
+  input: QuestionInput & { options?: QuestionOptionUpdate[] },
+) {
+  await requireAdmin();
+  await validateQuestionInput(input);
+
+  const existing = await prisma.question.findFirst({
+    where: { id: questionId, examId },
+    include: { options: true },
+  });
+  if (!existing) throw new Error("Question not found");
+
+  await prisma.$transaction(async (tx) => {
+    await tx.question.update({
+      where: { id: questionId },
+      data: {
+        type: input.type,
+        text: input.text,
+        sortOrder: input.sortOrder,
+        config: input.config
+          ? (input.config as Prisma.InputJsonValue)
+          : Prisma.DbNull,
+      },
+    });
+
+    const needsOptions =
+      input.type === "MULTIPLE_CHOICE" || input.type === "MULTIPLE_SELECT";
+
+    if (needsOptions) {
+      const opts: QuestionOptionUpdate[] = (input.options ?? []).filter(
+        (o) => o.text.trim(),
+      );
+      const keptIds = new Set<string>();
+
+      for (let i = 0; i < opts.length; i++) {
+        const o = opts[i];
+        if (o.id) {
+          await tx.answerOption.update({
+            where: { id: o.id },
+            data: { text: o.text, isCorrect: o.isCorrect, sortOrder: i },
+          });
+          keptIds.add(o.id);
+        } else {
+          const created = await tx.answerOption.create({
+            data: {
+              questionId,
+              text: o.text,
+              isCorrect: o.isCorrect,
+              sortOrder: i,
+            },
+          });
+          keptIds.add(created.id);
+        }
+      }
+
+      const removeIds = existing.options
+        .map((o) => o.id)
+        .filter((id) => !keptIds.has(id));
+      if (removeIds.length) {
+        await tx.answerOption.deleteMany({ where: { id: { in: removeIds } } });
+      }
+    } else if (existing.options.length) {
+      await tx.answerOption.deleteMany({ where: { questionId } });
+    }
+  });
+
+  revalidatePath(`/admin/exams/${examId}`);
 }
 
 export async function deleteQuestion(examId: string, questionId: string) {

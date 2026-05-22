@@ -1,32 +1,63 @@
 "use client";
 
-import { submitExamAttempt } from "@/lib/actions/exams";
+import { saveExamProgress, submitExamAttempt } from "@/lib/actions/exams";
 import { QuestionTake } from "@/components/exams/QuestionTake";
 import { StickyActionBar } from "@/components/ui/StickyActionBar";
 import { getUnansweredQuestions } from "@/lib/exams/validate-answers";
 import type { QuestionType } from "@prisma/client";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+
+type Question = {
+  id: string;
+  type: QuestionType;
+  text: string;
+  config: unknown;
+  options: { id: string; text: string }[];
+};
+
+function buildInitialAnswers(
+  questions: Question[],
+  saved: Record<string, unknown>,
+): Record<string, unknown> {
+  const next = { ...saved };
+  for (const q of questions) {
+    if (q.type === "SLIDER" && next[q.id] === undefined) {
+      const cfg = q.config as { min?: number } | null;
+      next[q.id] = { value: cfg?.min ?? 0 };
+    }
+  }
+  return next;
+}
+
+function formatSavedTime(iso: string): string {
+  try {
+    return new Date(iso).toLocaleTimeString(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  } catch {
+    return "";
+  }
+}
 
 export function ExamTakeForm({
   attemptId,
   examId,
   questions,
   timeLimitMinutes,
+  initialAnswers = {},
 }: {
   attemptId: string;
   examId: string;
-  questions: {
-    id: string;
-    type: QuestionType;
-    text: string;
-    config: unknown;
-    options: { id: string; text: string }[];
-  }[];
+  questions: Question[];
   timeLimitMinutes: number;
+  initialAnswers?: Record<string, unknown>;
 }) {
   const router = useRouter();
-  const [answers, setAnswers] = useState<Record<string, unknown>>({});
+  const [answers, setAnswers] = useState(() =>
+    buildInitialAnswers(questions, initialAnswers),
+  );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [highlightUnanswered, setHighlightUnanswered] = useState<Set<string>>(
@@ -34,26 +65,48 @@ export function ExamTakeForm({
   );
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [unansweredCount, setUnansweredCount] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+  const skipAutosaveRef = useRef(true);
+  const saveInFlightRef = useRef(false);
+
+  const persistProgress = useCallback(
+    async (showSaving = true) => {
+      if (saveInFlightRef.current) return;
+      saveInFlightRef.current = true;
+      if (showSaving) setSaving(true);
+      setSaveError("");
+      try {
+        const result = await saveExamProgress(attemptId, answers);
+        if (result?.error) {
+          setSaveError(result.error);
+          return;
+        }
+        if (result?.savedAt) setLastSavedAt(result.savedAt);
+      } catch {
+        setSaveError("Could not save progress. Check your connection.");
+      } finally {
+        saveInFlightRef.current = false;
+        if (showSaving) setSaving(false);
+      }
+    },
+    [attemptId, answers],
+  );
 
   useEffect(() => {
-    setAnswers((prev) => {
-      const next = { ...prev };
-      let changed = false;
-      for (const q of questions) {
-        if (q.type === "SLIDER" && next[q.id] === undefined) {
-          const cfg = q.config as { min?: number } | null;
-          next[q.id] = { value: cfg?.min ?? 0 };
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
-  }, [questions]);
+    if (skipAutosaveRef.current) {
+      skipAutosaveRef.current = false;
+      return;
+    }
+    const timer = setTimeout(() => {
+      void persistProgress(false);
+    }, 2500);
+    return () => clearTimeout(timer);
+  }, [answers, persistProgress]);
 
-  function scrollToQuestion(questionId: string) {
-    document
-      .getElementById(`question-${questionId}`)
-      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+  async function handleSaveProgress() {
+    await persistProgress(true);
   }
 
   async function submitToServer() {
@@ -100,6 +153,12 @@ export function ExamTakeForm({
     void submitToServer();
   }
 
+  function scrollToQuestion(questionId: string) {
+    document
+      .getElementById(`question-${questionId}`)
+      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
   function handleAnswerChange(questionId: string, value: unknown) {
     setAnswers((prev) => ({ ...prev, [questionId]: value }));
     setHighlightUnanswered((prev) => {
@@ -115,6 +174,13 @@ export function ExamTakeForm({
   }
 
   const highlightedCount = highlightUnanswered.size;
+  const saveStatus = saving
+    ? "Saving…"
+    : saveError
+      ? saveError
+      : lastSavedAt
+        ? `Saved at ${formatSavedTime(lastSavedAt)}`
+        : "Autosaves as you answer";
 
   return (
     <>
@@ -128,8 +194,8 @@ export function ExamTakeForm({
           Time limit: {timeLimitMinutes} minutes
           {highlightedCount > 0 && (
             <span className="ml-2 font-medium text-amber-800">
-              · {highlightedCount} question{highlightedCount === 1 ? "" : "s"} not
-              answered
+              · {highlightedCount} question{highlightedCount === 1 ? "" : "s"}{" "}
+              not answered
             </span>
           )}
         </p>
@@ -153,14 +219,32 @@ export function ExamTakeForm({
           </div>
         )}
         <StickyActionBar fixed>
-          <button
-            type="submit"
-            form="exam-take-form"
-            disabled={submitting}
-            className="min-h-11 w-full rounded-lg bg-storm-medium-blue px-6 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
-          >
-            {submitting ? "Submitting…" : "Submit exam"}
-          </button>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+              <button
+                type="button"
+                onClick={() => void handleSaveProgress()}
+                disabled={saving || submitting}
+                className="min-h-11 rounded-lg border border-storm-medium-blue px-4 py-2.5 text-sm font-semibold text-storm-medium-blue disabled:opacity-50"
+              >
+                {saving ? "Saving…" : "Save progress"}
+              </button>
+              <span
+                className={`text-xs ${saveError ? "text-red-700" : "text-storm-navy/60"}`}
+                aria-live="polite"
+              >
+                {saveStatus}
+              </span>
+            </div>
+            <button
+              type="submit"
+              form="exam-take-form"
+              disabled={submitting || saving}
+              className="min-h-11 w-full rounded-lg bg-storm-medium-blue px-6 py-2.5 text-sm font-semibold text-white disabled:opacity-50 sm:w-auto"
+            >
+              {submitting ? "Submitting…" : "Submit exam"}
+            </button>
+          </div>
         </StickyActionBar>
       </form>
 

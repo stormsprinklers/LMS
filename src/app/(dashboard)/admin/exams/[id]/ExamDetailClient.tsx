@@ -13,6 +13,9 @@ import { QuestionEditor } from "@/components/exams/QuestionEditor";
 import { UserAssignmentList } from "@/components/ui/UserAssignmentList";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useState } from "react";
+import type { EditableQuestion } from "@/components/exams/QuestionEditor";
+import type { QuestionType } from "@prisma/client";
 
 type ExamData = {
   id: string;
@@ -30,14 +33,7 @@ type ExamData = {
   course: { id: string; slug: string; title: string } | null;
   lesson: { id: string; title: string } | null;
   _count: { attempts: number };
-  questions: {
-    id: string;
-    type: string;
-    text: string;
-    sortOrder: number;
-    config: unknown;
-    options: { id: string; text: string; isCorrect: boolean }[];
-  }[];
+  questions: EditableQuestion[];
   assignments: { userId: string; user: { id: string; name: string | null; email: string } }[];
 };
 
@@ -56,7 +52,17 @@ export function ExamDetailClient({
   allUsers: { id: string; email: string; name: string | null }[];
 }) {
   const router = useRouter();
+  const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null);
   const assignedIds = new Set(exam.assignments.map((a) => a.userId));
+
+  function toEditableQuestion(
+    q: ExamData["questions"][number],
+  ): EditableQuestion {
+    return {
+      ...q,
+      type: q.type as QuestionType,
+    };
+  }
 
   async function saveSettings(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -185,36 +191,79 @@ export function ExamDetailClient({
         />
       </div>
 
-      <QuestionEditor examId={exam.id} nextSortOrder={exam.questions.length} />
+      <QuestionEditor
+        examId={exam.id}
+        nextSortOrder={exam.questions.length}
+        onSaved={() => router.refresh()}
+      />
 
-      <ul className="space-y-4">
-        {exam.questions.map((q, i) => (
-          <li key={q.id} className="rounded-xl border bg-white p-4">
-            <div className="flex flex-col gap-2 sm:flex-row sm:justify-between">
-              <p className="min-w-0 font-medium text-storm-navy break-words">
-                {i + 1}. [{q.type}] {q.text}
-              </p>
-              <button
-                type="button"
-                onClick={async () => {
-                  await deleteQuestion(exam.id, q.id);
-                  router.refresh();
-                }}
-                className="min-h-11 shrink-0 text-sm text-red-600 sm:text-xs"
-              >
-                Delete
-              </button>
-            </div>
-            {q.options.length > 0 && (
-              <ul className="mt-2 text-sm text-storm-navy/70">
-                {q.options.map((o) => (
-                  <li key={o.id}>{o.isCorrect ? "✓ " : ""}{o.text}</li>
-                ))}
-              </ul>
-            )}
-          </li>
-        ))}
-      </ul>
+      <div>
+        <h2 className="font-medium text-storm-navy mb-3">
+          Questions ({exam.questions.length})
+        </h2>
+        <ul className="space-y-4">
+          {exam.questions.map((q, i) =>
+            editingQuestionId === q.id ? (
+              <li key={q.id}>
+                <QuestionEditor
+                  examId={exam.id}
+                  nextSortOrder={q.sortOrder}
+                  question={toEditableQuestion(q)}
+                  onCancel={() => setEditingQuestionId(null)}
+                  onSaved={() => {
+                    setEditingQuestionId(null);
+                    router.refresh();
+                  }}
+                />
+              </li>
+            ) : (
+              <li key={q.id} className="rounded-xl border bg-white p-4">
+                <div className="flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-start">
+                  <p className="min-w-0 font-medium text-storm-navy break-words">
+                    {i + 1}. [{q.type.replace(/_/g, " ")}] {q.text}
+                  </p>
+                  <div className="flex shrink-0 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setEditingQuestionId(q.id)}
+                      className="min-h-11 text-sm font-medium text-storm-medium-blue"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (
+                          !confirm(
+                            "Delete this question? This cannot be undone.",
+                          )
+                        ) {
+                          return;
+                        }
+                        await deleteQuestion(exam.id, q.id);
+                        router.refresh();
+                      }}
+                      className="min-h-11 text-sm text-red-600"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+                {q.options.length > 0 && (
+                  <ul className="mt-2 text-sm text-storm-navy/70">
+                    {q.options.map((o) => (
+                      <li key={o.id}>
+                        {o.isCorrect ? "✓ " : ""}
+                        {o.text}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </li>
+            ),
+          )}
+        </ul>
+      </div>
     </div>
   );
 }

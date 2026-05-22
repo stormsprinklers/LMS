@@ -12,6 +12,10 @@ import {
   resolveQuestionOrder,
 } from "@/lib/exams/attempt-state";
 import { prisma } from "@/lib/db";
+import {
+  hasSavedExamAnswers,
+  parseSavedExamAnswers,
+} from "@/lib/exams/saved-answers";
 
 export default async function ExamTakePage({
   params,
@@ -71,6 +75,9 @@ export default async function ExamTakePage({
 
   const ordered = resolveQuestionOrder(attempt.questionOrder, exam.questions);
 
+  const savedAnswers = parseSavedExamAnswers(attempt.answers);
+  const restoredProgress = hasSavedExamAnswers(savedAnswers);
+
   if (ordered.length === 0) {
     return (
       <>
@@ -98,9 +105,16 @@ export default async function ExamTakePage({
         {exam.timeLimitMinutes} minutes · {exam.passingScore}% required to pass ·{" "}
         {attemptsAllowed} attempt{attemptsAllowed === 1 ? "" : "s"} allowed
       </p>
+      {restoredProgress && (
+        <div className="mt-4 rounded-xl border border-storm-medium-blue/30 bg-storm-medium-blue/10 px-4 py-3 text-sm text-storm-navy">
+          Your previous answers were restored. You can leave and return later;
+          use <strong>Save progress</strong> or wait for autosave.
+        </div>
+      )}
       <ExamTakeForm
         attemptId={attempt.id}
         examId={id}
+        initialAnswers={savedAnswers}
         questions={ordered.map((q) => {
           const options = shuffleOptionsForTake(
             q.type,

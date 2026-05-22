@@ -51,6 +51,29 @@ export async function startExamAttempt(examId: string) {
   return { attemptId: attempt.id };
 }
 
+export async function saveExamProgress(
+  attemptId: string,
+  answers: Record<string, unknown>,
+) {
+  try {
+    const session = await requireUser();
+    const attempt = await prisma.examAttempt.findFirst({
+      where: { id: attemptId, userId: session.user.id },
+    });
+    if (!attempt || attempt.status !== "IN_PROGRESS") {
+      return { error: "Cannot save progress for this attempt." };
+    }
+    await prisma.examAttempt.update({
+      where: { id: attemptId },
+      data: { answers: answers as Prisma.InputJsonValue },
+    });
+    return { savedAt: new Date().toISOString() };
+  } catch (e) {
+    console.error("saveExamProgress failed:", e);
+    return { error: "Could not save progress. Please try again." };
+  }
+}
+
 export async function submitExamAttempt(
   attemptId: string,
   answers: Record<string, unknown>,
