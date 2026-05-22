@@ -4,7 +4,7 @@ import { requireUser } from "@/lib/auth-utils";
 import { getExamForTake } from "@/lib/repositories/exams";
 import { startExamAttempt } from "@/lib/actions/exams";
 import { ExamTakeForm } from "./ExamTakeForm";
-import { userCanTakeExam } from "@/lib/exams/access";
+import { shuffleOptionsForTake, userCanTakeExam } from "@/lib/exams/access";
 import {
   effectiveAttemptsAllowed,
   getInProgressAttempt,
@@ -101,13 +101,21 @@ export default async function ExamTakePage({
       <ExamTakeForm
         attemptId={attempt.id}
         examId={id}
-        questions={ordered.map((q) => ({
-          id: q.id,
-          type: q.type,
-          text: q.text,
-          config: q.config,
-          options: q.options.map((o) => ({ id: o.id, text: o.text })),
-        }))}
+        questions={ordered.map((q) => {
+          const options = shuffleOptionsForTake(
+            q.type,
+            q.options.map((o) => ({ id: o.id, text: o.text })),
+            attempt.id,
+            q.id,
+          );
+          return {
+            id: q.id,
+            type: q.type,
+            text: q.text,
+            config: q.config,
+            options,
+          };
+        })}
         timeLimitMinutes={exam.timeLimitMinutes}
       />
     </>

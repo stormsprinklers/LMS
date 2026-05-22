@@ -21,6 +21,13 @@ if (!process.env.DATABASE_URL) {
 console.log("Running prisma migrate deploy…");
 execSync("npx prisma migrate deploy", { stdio: "inherit" });
 
+console.log("Backfilling course builder curriculum from legacy lessons…");
+try {
+  execSync("npx tsx prisma/migrate-courses-to-builder.ts", { stdio: "inherit" });
+} catch (e) {
+  console.warn("Course builder backfill skipped or partial:", e.message ?? e);
+}
+
 console.log("Running production seed (skipped if admin already exists)…");
 execSync("npx tsx prisma/seed-production.ts", { stdio: "inherit" });
 

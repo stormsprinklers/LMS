@@ -41,6 +41,7 @@ export const adminSubNavItems = [
   { href: "/admin/courses", label: "Courses" },
   { href: "/admin/exams", label: "Exams" },
   { href: "/admin/grading", label: "Grading" },
+  { href: "/admin/skill-checks", label: "Skill Checks" },
   { href: "/admin/users", label: "Users" },
   { href: "/admin/certifications", label: "Certifications" },
   { href: "/admin/media", label: "Media" },

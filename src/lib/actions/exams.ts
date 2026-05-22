@@ -54,6 +54,23 @@ export async function submitExamAttempt(
   attemptId: string,
   answers: Record<string, unknown>,
 ) {
+  try {
+    return await submitExamAttemptInner(attemptId, answers);
+  } catch (e) {
+    console.error("submitExamAttempt failed:", e);
+    return {
+      error:
+        e instanceof Error
+          ? e.message
+          : "Submission failed. Please try again.",
+    };
+  }
+}
+
+async function submitExamAttemptInner(
+  attemptId: string,
+  answers: Record<string, unknown>,
+) {
   const session = await requireUser();
   const attempt = await prisma.examAttempt.findFirst({
     where: { id: attemptId, userId: session.user.id },
@@ -130,15 +147,26 @@ export async function submitExamAttempt(
           ? graders.map((g) => g.userId)
           : fallbackAdmins.map((a) => a.id);
 
-      for (const graderId of notifyUsers) {
+      const graderIds = [...new Set(notifyUsers)];
+      const existingTask = await prisma.gradingTask.findUnique({
+        where: {
+          attemptId_questionId: {
+            attemptId,
+            questionId: question.id,
+          },
+        },
+      });
+      if (!existingTask && graderIds.length > 0) {
         await prisma.gradingTask.create({
           data: {
             attemptId,
             questionId: question.id,
             courseId: attempt.exam.courseId,
-            assignedToUserId: graderId,
+            assignedToUserId: graderIds[0],
           },
         });
+      }
+      for (const graderId of graderIds) {
         await prisma.notification.create({
           data: {
             userId: graderId,

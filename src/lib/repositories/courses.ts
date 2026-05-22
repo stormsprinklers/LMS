@@ -21,13 +21,46 @@ const courseInclude = (userId?: string) => ({
 
 export async function getCoursesForUser(userId: string): Promise<Course[]> {
   const courses = await prisma.course.findMany({
-    where: { published: true, archived: false },
-    include: courseInclude(userId),
+    where: {
+      published: true,
+      archived: false,
+      status: "PUBLISHED",
+    },
+    include: {
+      ...courseInclude(userId),
+      _count: { select: { courseItems: { where: { archived: false } } } },
+      enrollments: { where: { userId }, take: 1 },
+      settings: true,
+    },
     orderBy: { title: "asc" },
   });
 
-  return courses.map((c) =>
-    toCourseDTO(c as unknown as CourseWithRelations),
+  const visible = courses.filter((c) => {
+    const mode = c.settings?.enrollmentMode ?? "MANUAL";
+    if (mode === "SELF_ENROLL" || mode === "AUTO") return true;
+    return c.enrollments.length > 0;
+  });
+
+  return Promise.all(
+    visible.map(async (c) => {
+      const itemCount = c._count.courseItems;
+      if (itemCount > 0) {
+        const completed = await prisma.courseItemProgress.count({
+          where: {
+            userId,
+            status: "COMPLETED",
+            courseItem: { courseId: c.id, archived: false },
+          },
+        });
+        const dto = toCourseDTO(c as unknown as CourseWithRelations);
+        return {
+          ...dto,
+          lessonCount: itemCount,
+          progress: itemCount > 0 ? Math.round((completed / itemCount) * 100) : 0,
+        };
+      }
+      return toCourseDTO(c as unknown as CourseWithRelations);
+    }),
   );
 }
 
@@ -70,7 +103,7 @@ export async function listCoursesAdmin(archived = false) {
     where: { archived },
     orderBy: archived ? { archivedAt: "desc" } : { title: "asc" },
     include: {
-      modules: { include: { _count: { select: { lessons: true } } } },
+      modules: { include: { _count: { select: { lessons: true, courseItems: true } } } },
     },
   });
 }

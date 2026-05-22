@@ -31,6 +31,20 @@ export async function updateVideoProgress(
     create: { userId, lessonId, watchedSeconds, status },
   });
 
+  const courseItem = await prisma.courseItem.findFirst({
+    where: { legacyLessonId: lessonId },
+    select: { id: true },
+  });
+  if (courseItem) {
+    const { updateVideoItemProgress } = await import("@/lib/courses/completion");
+    await updateVideoItemProgress(
+      userId,
+      courseItem.id,
+      watchedSeconds,
+      lesson.durationMinutes,
+    );
+  }
+
   revalidatePath(`/courses/${lesson.module.course.slug}`);
   revalidatePath("/training");
 }

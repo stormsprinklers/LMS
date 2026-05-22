@@ -25,6 +25,76 @@ enum LessonType {
   EXAM
 }
 
+enum CourseStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum CourseDifficulty {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+}
+
+enum ContentStatus {
+  DRAFT
+  READY
+  PUBLISHED
+  ARCHIVED
+}
+
+enum CourseItemType {
+  LESSON
+  VIDEO
+  QUIZ
+  EXAM
+  SKILL_CHECK
+  SCENARIO
+}
+
+enum CourseItemTrack {
+  LEARN
+  PRACTICE
+  PROVE
+}
+
+enum ModuleUnlockRule {
+  ALWAYS
+  PREVIOUS_MODULE_COMPLETE
+  QUIZ_PASSED
+  MANUAL
+}
+
+enum CourseVisibility {
+  PRIVATE
+  UNLISTED
+  PUBLIC
+}
+
+enum EnrollmentMode {
+  MANUAL
+  AUTO
+  SELF_ENROLL
+}
+
+enum CourseDueDateType {
+  NONE
+  RELATIVE
+  FIXED
+}
+
+enum AssignToType {
+  USER
+  ROLE
+  ALL
+}
+
+enum SkillCheckPassingRule {
+  ALL_REQUIRED
+  MINIMUM_SCORE
+}
+
 enum LessonProgressStatus {
   NOT_STARTED
   IN_PROGRESS
@@ -94,6 +164,10 @@ model User {
   examAnswersGraded  ExamAnswer[]     @relation("GradedBy")
   gradingTasks       GradingTask[]    @relation("GradingAssignee")
   notifications      Notification[]
+  coursesCreated     Course[]         @relation("CourseCreator")
+  courseItemProgress CourseItemProgress[]
+  skillCheckCompletions     SkillCheckCompletion[]
+  skillCheckEvaluations     SkillCheckCompletion[] @relation("SkillCheckEvaluator")
 }
 
 model Account {
@@ -143,25 +217,39 @@ model Invite {
 }
 
 model Course {
-  id              String   @id @default(cuid())
-  slug            String   @unique
-  title           String
-  description     String   @db.Text
-  category        String
-  estimatedHours  Float
-  requiredRoles   String[] @default([])
-  published       Boolean  @default(true)
-  archived        Boolean  @default(false)
-  archivedAt      DateTime?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id                    String           @id @default(cuid())
+  slug                  String           @unique
+  title                 String
+  description           String           @db.Text
+  shortDescription      String?          @db.Text
+  category              String
+  estimatedHours        Float
+  estimatedMinutes      Int?
+  difficulty            CourseDifficulty @default(BEGINNER)
+  thumbnailUrl          String?
+  tags                  String[]         @default([])
+  internalNotes         String?          @db.Text
+  status                CourseStatus     @default(DRAFT)
+  hasUnpublishedChanges Boolean          @default(false)
+  publishedAt           DateTime?
+  requiredRoles         String[]         @default([])
+  published             Boolean          @default(true)
+  archived              Boolean          @default(false)
+  archivedAt            DateTime?
+  createdById           String?
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
 
-  modules            Module[]
-  enrollments        Enrollment[]
-  certificationRules CertificationRule[]
-  courseAssignments  CourseAssignment[]
-  courseAdmins       CourseAdmin[]
-  exams              Exam[]
+  createdBy              User?                      @relation("CourseCreator", fields: [createdById], references: [id])
+  modules                Module[]
+  courseItems            CourseItem[]
+  settings               CourseSettings?
+  enrollments            Enrollment[]
+  enrollmentAssignments  CourseEnrollmentAssignment[]
+  certificationRules     CertificationRule[]
+  courseAssignments      CourseAssignment[]
+  courseAdmins           CourseAdmin[]
+  exams                  Exam[]
 }
 
 model CourseAdmin {
@@ -185,12 +273,18 @@ model CourseAssignment {
 }
 
 model Module {
-  id        String   @id @default(cuid())
-  courseId  String
-  title     String
-  sortOrder Int      @default(0)
-  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  lessons   Lesson[]
+  id               String           @id @default(cuid())
+  courseId         String
+  title            String
+  description      String?          @db.Text
+  sortOrder        Int              @default(0)
+  estimatedMinutes Int?
+  isRequired       Boolean          @default(true)
+  unlockRule       ModuleUnlockRule @default(ALWAYS)
+  status           ContentStatus    @default(PUBLISHED)
+  course           Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  lessons          Lesson[]
+  courseItems      CourseItem[]
 }
 
 model Lesson {
@@ -208,8 +302,163 @@ model Lesson {
   manualAsset     ManualAsset?
   exam            Exam?
   progress        LessonProgress[]
+  courseItem      CourseItem? @relation("LegacyLesson")
 
   @@unique([moduleId, slug])
+}
+
+model CourseItem {
+  id               String          @id @default(cuid())
+  courseId         String
+  moduleId         String
+  itemType         CourseItemType
+  title            String
+  sortOrder        Int             @default(0)
+  isRequired       Boolean         @default(true)
+  estimatedMinutes Int?
+  completionRule   String          @default("manual")
+  status           ContentStatus   @default(DRAFT)
+  track            CourseItemTrack @default(LEARN)
+  legacyLessonId   String?         @unique
+  lessonContentId  String?         @unique
+  videoLessonId    String?         @unique
+  examId           String?         @unique
+  skillCheckId     String?         @unique
+  scenarioId       String?         @unique
+  archived         Boolean         @default(false)
+  archivedAt       DateTime?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  course         Course         @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  module         Module         @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  legacyLesson   Lesson?        @relation("LegacyLesson", fields: [legacyLessonId], references: [id], onDelete: SetNull)
+  lessonContent  LessonContent? @relation(fields: [lessonContentId], references: [id], onDelete: SetNull)
+  videoLesson    VideoLesson?   @relation(fields: [videoLessonId], references: [id], onDelete: SetNull)
+  exam           Exam?          @relation("CourseItemExam", fields: [examId], references: [id], onDelete: SetNull)
+  skillCheck     SkillCheck?    @relation(fields: [skillCheckId], references: [id], onDelete: SetNull)
+  scenario       Scenario?      @relation(fields: [scenarioId], references: [id], onDelete: SetNull)
+  progress       CourseItemProgress[]
+
+  @@index([moduleId, sortOrder])
+  @@index([courseId])
+}
+
+model LessonContent {
+  id                  String   @id @default(cuid())
+  bodyJson            Json?
+  bodyHtml            String?  @db.Text
+  completionRule      String   @default("viewed")
+  minimumTimeSeconds  Int?
+  courseItem          CourseItem?
+}
+
+model VideoLesson {
+  id                    String   @id @default(cuid())
+  videoUrl              String?
+  muxAssetId            String?
+  muxPlaybackId         String?
+  durationSeconds       Int?
+  transcript            String?  @db.Text
+  requiredWatchPercent  Int      @default(80)
+  completionRule        String   @default("watch_percent")
+  status                String   @default("pending")
+  courseItem            CourseItem?
+}
+
+model SkillCheck {
+  id                    String              @id @default(cuid())
+  traineeInstructions   String?             @db.Text
+  evaluatorInstructions String?             @db.Text
+  passingRule           SkillCheckPassingRule @default(ALL_REQUIRED)
+  minimumScore          Int?
+  requiresEvaluator     Boolean             @default(true)
+  steps                 SkillCheckStep[]
+  courseItem            CourseItem?
+  completions           SkillCheckCompletion[]
+}
+
+model SkillCheckStep {
+  id           String     @id @default(cuid())
+  skillCheckId String
+  text         String
+  isRequired   Boolean    @default(true)
+  points       Int        @default(1)
+  sortOrder    Int        @default(0)
+  skillCheck   SkillCheck @relation(fields: [skillCheckId], references: [id], onDelete: Cascade)
+}
+
+model SkillCheckCompletion {
+  id           String               @id @default(cuid())
+  skillCheckId String
+  userId       String
+  passed       Boolean
+  score        Int?
+  notes        String?              @db.Text
+  evaluatedById String?
+  completedAt  DateTime             @default(now())
+  skillCheck   SkillCheck           @relation(fields: [skillCheckId], references: [id], onDelete: Cascade)
+  user         User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  evaluatedBy  User?                @relation("SkillCheckEvaluator", fields: [evaluatedById], references: [id])
+
+  @@unique([skillCheckId, userId])
+}
+
+model Scenario {
+  id             String   @id @default(cuid())
+  prompt         String   @db.Text
+  backgroundInfo String?  @db.Text
+  difficulty     String?
+  category       String?
+  courseItem     CourseItem?
+}
+
+model CourseSettings {
+  id                      String           @id @default(cuid())
+  courseId                String           @unique
+  visibility              CourseVisibility @default(PRIVATE)
+  enrollmentMode          EnrollmentMode   @default(MANUAL)
+  dueDateType             CourseDueDateType @default(NONE)
+  dueDaysAfterEnrollment  Int?
+  fixedDueDate            DateTime?
+  requireAllLessons       Boolean          @default(true)
+  requireAllQuizzes       Boolean          @default(true)
+  requireAllSkillChecks   Boolean          @default(true)
+  finalExamRequired       Boolean          @default(false)
+  finalExamPassingScore   Int?
+  issueCertificate        Boolean          @default(true)
+  notifyOnAssign          Boolean          @default(true)
+  notifyReminder          Boolean          @default(false)
+  course                  Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
+}
+
+model CourseEnrollmentAssignment {
+  id           String          @id @default(cuid())
+  courseId     String
+  assignedById String?
+  assignToType AssignToType
+  assignToId   String?
+  dueDateType  CourseDueDateType @default(NONE)
+  dueDays      Int?
+  dueDate      DateTime?
+  createdAt    DateTime        @default(now())
+  course       Course          @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@index([courseId])
+}
+
+model CourseItemProgress {
+  id             String               @id @default(cuid())
+  userId         String
+  courseItemId   String
+  status         LessonProgressStatus @default(NOT_STARTED)
+  watchedSeconds Int                  @default(0)
+  metadata       Json?
+  updatedAt      DateTime             @updatedAt
+  user           User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  courseItem     CourseItem           @relation(fields: [courseItemId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, courseItemId])
 }
 
 model VideoAsset {
@@ -282,6 +531,7 @@ model Exam {
 
   lesson      Lesson?          @relation(fields: [lessonId], references: [id], onDelete: Cascade)
   course      Course?          @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  courseItem  CourseItem?      @relation("CourseItemExam")
   createdBy   User?            @relation("ExamCreator", fields: [createdById], references: [id])
   questions   Question[]
   attempts    ExamAttempt[]
