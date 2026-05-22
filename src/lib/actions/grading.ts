@@ -27,6 +27,7 @@ export async function getGradingInbox() {
   const tasks = await prisma.gradingTask.findMany({
     where: {
       status: "PENDING",
+      archived: false,
       ...(user.role === "ADMIN"
         ? {}
         : {

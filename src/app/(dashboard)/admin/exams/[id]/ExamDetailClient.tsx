@@ -92,7 +92,7 @@ export function ExamDetailClient({
           </label>
           <label className="text-sm">
             <span className="mb-1 block text-storm-navy/70">Attempts</span>
-            <input name="attemptsAllowed" type="number" defaultValue={exam.attemptsAllowed} className={inputClass} />
+            <input name="attemptsAllowed" type="number" min={1} defaultValue={exam.attemptsAllowed < 1 ? 3 : exam.attemptsAllowed} className={inputClass} />
           </label>
         </div>
         <label className="flex min-h-11 items-center gap-3 text-sm">

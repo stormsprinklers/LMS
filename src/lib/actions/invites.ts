@@ -85,6 +85,7 @@ export async function listUsers() {
       role: true,
       status: true,
       jobRole: true,
+      archived: true,
       createdAt: true,
     },
   });

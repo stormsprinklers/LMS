@@ -45,6 +45,7 @@ export async function getCertificationsForUser(
 
 export async function listCertificationRules() {
   return prisma.certificationRule.findMany({
+    where: { archived: false },
     include: { course: true },
     orderBy: { title: "asc" },
   });

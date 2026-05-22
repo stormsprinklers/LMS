@@ -60,7 +60,7 @@ export function NewExamForm({
         </label>
         <label className="text-sm">
           <span className="mb-1 block text-storm-navy/70">Attempts</span>
-          <input name="attemptsAllowed" type="number" defaultValue={3} className={inputClass} />
+          <input name="attemptsAllowed" type="number" min={1} defaultValue={3} required className={inputClass} />
         </label>
       </div>
       <label className="flex min-h-11 items-center gap-3 text-sm">

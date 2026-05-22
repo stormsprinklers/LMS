@@ -1,31 +1,36 @@
-import Link from "next/link";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { AdminArchivedLink } from "@/components/admin/AdminArchivedLink";
+import { AdminListCard } from "@/components/admin/AdminListCard";
 import { listCoursesAdmin } from "@/lib/repositories/courses";
 import { CreateCourseForm } from "./CreateCourseForm";
 
 export const metadata = { title: "Admin — Courses" };
 
 export default async function AdminCoursesPage() {
-  const courses = await listCoursesAdmin();
+  const courses = await listCoursesAdmin(false);
 
   return (
     <>
-      <PageHeader title="Courses" description="Create and edit training courses." />
+      <PageHeader
+        title="Courses"
+        description="Create and edit training courses."
+        action={<AdminArchivedLink />}
+      />
       <CreateCourseForm />
       <ul className="mt-8 space-y-3">
         {courses.map((c) => (
-          <li key={c.id}>
-            <Link
-              href={`/admin/courses/${c.slug}`}
-              className="block rounded-xl border border-storm-light-blue/60 bg-white p-4 no-underline transition-shadow hover:shadow-md"
-            >
-              <p className="font-title font-bold text-storm-navy">{c.title}</p>
-              <p className="text-sm text-storm-navy/60">
-                {c.category} · {c.modules.reduce((n, m) => n + m._count.lessons, 0)} lessons
-              </p>
-            </Link>
-          </li>
+          <AdminListCard
+            key={c.id}
+            href={`/admin/courses/${c.slug}`}
+            title={c.title}
+            subtitle={`${c.category} · ${c.modules.reduce((n, m) => n + m._count.lessons, 0)} lessons`}
+            type="course"
+            id={c.id}
+          />
         ))}
+        {courses.length === 0 && (
+          <p className="text-sm text-storm-navy/60">No active courses.</p>
+        )}
       </ul>
     </>
   );

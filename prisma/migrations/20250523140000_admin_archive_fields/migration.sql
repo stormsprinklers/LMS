@@ -1,0 +1,18 @@
+-- AlterTable
+ALTER TABLE "Course" ADD COLUMN "archived" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "Course" ADD COLUMN "archivedAt" TIMESTAMP(3);
+
+ALTER TABLE "Lesson" ADD COLUMN "archived" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "Lesson" ADD COLUMN "archivedAt" TIMESTAMP(3);
+
+ALTER TABLE "ManualAsset" ADD COLUMN "archived" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "ManualAsset" ADD COLUMN "archivedAt" TIMESTAMP(3);
+
+ALTER TABLE "User" ADD COLUMN "archived" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "User" ADD COLUMN "archivedAt" TIMESTAMP(3);
+
+ALTER TABLE "CertificationRule" ADD COLUMN "archived" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "CertificationRule" ADD COLUMN "archivedAt" TIMESTAMP(3);
+
+ALTER TABLE "GradingTask" ADD COLUMN "archived" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "GradingTask" ADD COLUMN "archivedAt" TIMESTAMP(3);

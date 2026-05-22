@@ -7,6 +7,7 @@ const courseInclude = (userId?: string) => ({
     orderBy: { sortOrder: "asc" as const },
     include: {
       lessons: {
+        where: { archived: false },
         orderBy: { sortOrder: "asc" as const },
         include: {
           progress: userId
@@ -20,7 +21,7 @@ const courseInclude = (userId?: string) => ({
 
 export async function getCoursesForUser(userId: string): Promise<Course[]> {
   const courses = await prisma.course.findMany({
-    where: { published: true },
+    where: { published: true, archived: false },
     include: courseInclude(userId),
     orderBy: { title: "asc" },
   });
@@ -34,8 +35,8 @@ export async function getCourseBySlug(
   slug: string,
   userId: string,
 ): Promise<Course | null> {
-  const course = await prisma.course.findUnique({
-    where: { slug },
+  const course = await prisma.course.findFirst({
+    where: { slug, archived: false, published: true },
     include: courseInclude(userId),
   });
 
@@ -64,9 +65,10 @@ export async function getCourseBySlugAdmin(slug: string) {
   });
 }
 
-export async function listCoursesAdmin() {
+export async function listCoursesAdmin(archived = false) {
   return prisma.course.findMany({
-    orderBy: { title: "asc" },
+    where: { archived },
+    orderBy: archived ? { archivedAt: "desc" } : { title: "asc" },
     include: {
       modules: { include: { _count: { select: { lessons: true } } } },
     },

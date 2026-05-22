@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { AdminArchivedLink } from "@/components/admin/AdminArchivedLink";
+import { AdminListCard } from "@/components/admin/AdminListCard";
 import { getGradingInbox } from "@/lib/actions/grading";
 
 export const metadata = { title: "Grading inbox" };
@@ -17,26 +19,22 @@ export default async function GradingInboxPage() {
     <>
       <PageHeader
         title="Grading inbox"
-        description="Free-response submissions awaiting manual grading."
+        description="Free-response submissions awaiting manual grading. Archive to remove from the inbox without deleting attempt data."
+        action={<AdminArchivedLink />}
       />
       <ul className="space-y-3">
         {[...byAttempt.entries()].map(([attemptId, group]) => {
           const first = group[0];
+          const learner = first.attempt.user.name ?? first.attempt.user.email;
           return (
-            <li key={attemptId}>
-              <Link
-                href={`/admin/grading/${attemptId}`}
-                className="block min-h-11 rounded-xl border bg-white p-4 no-underline hover:shadow-md active:bg-storm-light-grey/30"
-              >
-                <p className="font-medium text-storm-navy">
-                  {first.attempt.exam.title}
-                </p>
-                <p className="text-sm text-storm-navy/60">
-                  {first.attempt.user.name ?? first.attempt.user.email} ·{" "}
-                  {group.length} question{group.length > 1 ? "s" : ""} pending
-                </p>
-              </Link>
-            </li>
+            <AdminListCard
+              key={attemptId}
+              href={`/admin/grading/${attemptId}`}
+              title={first.attempt.exam.title}
+              subtitle={`${learner} · ${group.length} question${group.length > 1 ? "s" : ""} pending · tap title to grade`}
+              type="gradingAttempt"
+              id={attemptId}
+            />
           );
         })}
         {byAttempt.size === 0 && (

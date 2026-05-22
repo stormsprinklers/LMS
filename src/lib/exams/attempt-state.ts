@@ -1,5 +1,13 @@
 import { prisma } from "@/lib/db";
 
+/** Exams with 0 attempts (bad admin input) are treated as at least 1. */
+export function effectiveAttemptsAllowed(attemptsAllowed: number) {
+  if (!Number.isFinite(attemptsAllowed) || attemptsAllowed < 1) {
+    return 3;
+  }
+  return Math.floor(attemptsAllowed);
+}
+
 export async function countCompletedAttempts(userId: string, examId: string) {
   return prisma.examAttempt.count({
     where: {
@@ -22,8 +30,9 @@ export async function getRemainingAttempts(
   examId: string,
   attemptsAllowed: number,
 ) {
+  const limit = effectiveAttemptsAllowed(attemptsAllowed);
   const completed = await countCompletedAttempts(userId, examId);
-  return Math.max(0, attemptsAllowed - completed);
+  return Math.max(0, limit - completed);
 }
 
 export function resolveQuestionOrder<T extends { id: string }>(

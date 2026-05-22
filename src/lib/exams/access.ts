@@ -4,12 +4,16 @@ export async function userCanTakeExam(userId: string, examId: string) {
   const exam = await prisma.exam.findUnique({
     where: { id: examId },
     include: {
-      lesson: { include: { module: true } },
+      lesson: { include: { module: { include: { course: true } } } },
+      course: true,
       assignments: { where: { userId } },
     },
   });
   if (!exam || !exam.published || exam.archived) {
     return { allowed: false, reason: "Exam not found" };
+  }
+  if (exam.course?.archived) {
+    return { allowed: false, reason: "Course not available" };
   }
 
   const assignment = exam.assignments[0];

@@ -44,6 +44,7 @@ export const adminSubNavItems = [
   { href: "/admin/users", label: "Users" },
   { href: "/admin/certifications", label: "Certifications" },
   { href: "/admin/media", label: "Media" },
+  { href: "/admin/archived", label: "Archived" },
 ] as const;
 
 export function getMainNavItems(role?: string): NavItem[] {

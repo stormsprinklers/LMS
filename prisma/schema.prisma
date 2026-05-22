@@ -75,6 +75,8 @@ model User {
   role          UserRole   @default(EMPLOYEE)
   status        UserStatus @default(INVITED)
   jobRole       String?
+  archived      Boolean    @default(false)
+  archivedAt    DateTime?
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
 
@@ -149,6 +151,8 @@ model Course {
   estimatedHours  Float
   requiredRoles   String[] @default([])
   published       Boolean  @default(true)
+  archived        Boolean  @default(false)
+  archivedAt      DateTime?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -197,6 +201,8 @@ model Lesson {
   type            LessonType
   sortOrder       Int        @default(0)
   durationMinutes Int?
+  archived        Boolean    @default(false)
+  archivedAt      DateTime?
   module          Module     @relation(fields: [moduleId], references: [id], onDelete: Cascade)
   videoAsset      VideoAsset?
   manualAsset     ManualAsset?
@@ -225,6 +231,8 @@ model ManualAsset {
   blobUrl   String?
   filename  String?
   pageCount Int      @default(0)
+  archived  Boolean  @default(false)
+  archivedAt DateTime?
   updatedAt DateTime @default(now())
   lesson    Lesson?  @relation(fields: [lessonId], references: [id], onDelete: SetNull)
 }
@@ -367,6 +375,8 @@ model GradingTask {
   courseId         String?
   status           GradingTaskStatus @default(PENDING)
   assignedToUserId String?
+  archived         Boolean           @default(false)
+  archivedAt       DateTime?
   createdAt        DateTime          @default(now())
   completedAt      DateTime?
   attempt          ExamAttempt       @relation(fields: [attemptId], references: [id], onDelete: Cascade)
@@ -394,6 +404,8 @@ model CertificationRule {
   courseId       String
   title          String
   validityMonths Int             @default(12)
+  archived       Boolean         @default(false)
+  archivedAt     DateTime?
   course         Course          @relation(fields: [courseId], references: [id], onDelete: Cascade)
   certifications Certification[]
 }

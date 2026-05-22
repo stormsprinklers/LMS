@@ -4,6 +4,7 @@ import type { Manual } from "@/lib/types";
 
 export async function getManuals(): Promise<Manual[]> {
   const manuals = await prisma.manualAsset.findMany({
+    where: { archived: false },
     orderBy: { updatedAt: "desc" },
   });
   return manuals.map((m) => toManualDTO(m));

@@ -8,6 +8,11 @@ import type { Prisma } from "@prisma/client";
 import { parseQuestionsCsv } from "@/lib/exams/csv-import";
 import type { QuestionInput } from "@/lib/exams/types";
 
+function clampAttemptsAllowed(value: number) {
+  if (!Number.isFinite(value) || value < 1) return 3;
+  return Math.floor(value);
+}
+
 export async function createExam(data: {
   title: string;
   description?: string;
@@ -28,7 +33,7 @@ export async function createExam(data: {
       createdById: session.user.id,
       passingScore: data.passingScore,
       timeLimitMinutes: data.timeLimitMinutes,
-      attemptsAllowed: data.attemptsAllowed,
+      attemptsAllowed: clampAttemptsAllowed(data.attemptsAllowed),
       shuffleQuestions: data.shuffleQuestions,
       gradeVisibility: data.gradeVisibility,
       published: true,
@@ -58,11 +63,15 @@ export async function updateExam(
   },
 ) {
   await requireAdmin();
+  const { attemptsAllowed, ...rest } = data;
   await prisma.exam.update({
     where: { id: examId },
     data: {
-      ...data,
+      ...rest,
       courseId: data.courseId === undefined ? undefined : data.courseId,
+      ...(attemptsAllowed !== undefined
+        ? { attemptsAllowed: clampAttemptsAllowed(attemptsAllowed) }
+        : {}),
     },
   });
   revalidatePath(`/admin/exams/${examId}`);

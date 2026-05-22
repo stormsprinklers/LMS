@@ -9,6 +9,7 @@ import {
   finalizeAttemptScore,
 } from "@/lib/exams/grade-attempt";
 import { userCanTakeExam, shuffleQuestionIds } from "@/lib/exams/access";
+import { effectiveAttemptsAllowed } from "@/lib/exams/attempt-state";
 import type { Prisma } from "@prisma/client";
 
 export async function startExamAttempt(examId: string) {
@@ -29,7 +30,8 @@ export async function startExamAttempt(examId: string) {
       status: { in: ["PASSED", "FAILED", "SUBMITTED_PENDING_GRADE"] },
     },
   });
-  if (attempts >= exam.attemptsAllowed) {
+  const limit = effectiveAttemptsAllowed(exam.attemptsAllowed);
+  if (attempts >= limit) {
     return { error: "No attempts remaining" };
   }
 

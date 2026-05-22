@@ -7,6 +7,7 @@ import {
 } from "@/lib/repositories/exams";
 import {
   countCompletedAttempts,
+  effectiveAttemptsAllowed,
   getRemainingAttempts,
 } from "@/lib/exams/attempt-state";
 import { notFound, redirect } from "next/navigation";
@@ -32,10 +33,11 @@ export default async function ExamResultsPage({
     redirect(`/exams/${id}/take`);
   }
 
+  const attemptsAllowed = effectiveAttemptsAllowed(exam.attemptsAllowed);
   const remaining = await getRemainingAttempts(
     session.user.id,
     id,
-    exam.attemptsAllowed,
+    attemptsAllowed,
   );
   const completedCount = await countCompletedAttempts(session.user.id, id);
 
@@ -120,10 +122,10 @@ export default async function ExamResultsPage({
         </div>
       )}
 
-      {completedCount >= exam.attemptsAllowed && !passed && !pendingReview && (
+      {completedCount >= attemptsAllowed && !passed && !pendingReview && (
         <p className="mt-4 text-sm text-storm-navy/70">
-          You have used all {exam.attemptsAllowed} attempt
-          {exam.attemptsAllowed === 1 ? "" : "s"} for this exam.
+          You have used all {attemptsAllowed} attempt
+          {attemptsAllowed === 1 ? "" : "s"} for this exam.
         </p>
       )}
 

@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import type { Exam } from "@/lib/types";
 import { userCanTakeExam } from "@/lib/exams/access";
+import { effectiveAttemptsAllowed } from "@/lib/exams/attempt-state";
 
 async function resolveExamStatus(
   userId: string,
@@ -54,7 +55,7 @@ function mapExam(
     questionCount,
     passingScore: exam.passingScore,
     timeLimitMinutes: exam.timeLimitMinutes,
-    attemptsAllowed: exam.attemptsAllowed,
+    attemptsAllowed: effectiveAttemptsAllowed(exam.attemptsAllowed),
     status,
   };
 }

@@ -3,6 +3,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { getCourseBySlugAdmin } from "@/lib/repositories/courses";
 import { AddLessonForm } from "./AddLessonForm";
 import Link from "next/link";
+import { AdminEntityActions } from "@/components/admin/AdminEntityActions";
 
 export default async function AdminCourseEditPage({
   params,
@@ -44,6 +45,21 @@ export default async function AdminCourseEditPage({
           </ul>
         </>
       )}
+      <div className="mt-10 rounded-xl border border-red-200 bg-red-50/50 p-5">
+        <h3 className="font-medium text-storm-navy">Archive or delete course</h3>
+        <p className="mt-1 text-sm text-storm-navy/70">
+          Archiving hides this course from learners. Deleting removes the course and all lessons
+          permanently.
+        </p>
+        <div className="mt-4">
+          <AdminEntityActions
+            type="course"
+            id={course.id}
+            name={course.title}
+            archived={course.archived}
+          />
+        </div>
+      </div>
     </>
   );
 }
