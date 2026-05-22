@@ -25,16 +25,16 @@ export default async function AdminCourseEditPage({
             {module.lessons.map((lesson) => (
               <li
                 key={lesson.id}
-                className="flex items-center justify-between rounded-lg border bg-white px-4 py-3"
+                className="flex flex-col gap-3 rounded-lg border bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
               >
-                <div>
-                  <p className="font-medium text-storm-navy">{lesson.title}</p>
+                <div className="min-w-0">
+                  <p className="font-medium text-storm-navy break-words">{lesson.title}</p>
                   <p className="text-xs text-storm-navy/60">{lesson.type}</p>
                 </div>
                 {lesson.exam && (
                   <Link
                     href={`/admin/exams/${lesson.exam.id}`}
-                    className="text-sm text-storm-medium-blue no-underline hover:underline"
+                    className="flex min-h-11 shrink-0 items-center text-sm font-medium text-storm-medium-blue no-underline"
                   >
                     Edit exam
                   </Link>

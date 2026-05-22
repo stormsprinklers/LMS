@@ -3,6 +3,9 @@
 import { createLesson } from "@/lib/actions/admin";
 import { useRouter } from "next/navigation";
 
+const inputClass =
+  "w-full min-h-11 rounded-lg border border-storm-light-blue/60 px-3 py-2 text-sm";
+
 export function AddLessonForm({ moduleId }: { moduleId: string }) {
   const router = useRouter();
 
@@ -21,16 +24,19 @@ export function AddLessonForm({ moduleId }: { moduleId: string }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-wrap gap-2 rounded-xl border bg-white p-4">
-      <input name="title" placeholder="Lesson title" required className="rounded border px-2 py-1" />
-      <input name="slug" placeholder="slug" required className="rounded border px-2 py-1" />
-      <select name="type" className="rounded border px-2 py-1">
+    <form onSubmit={handleSubmit} className="grid w-full gap-3 rounded-xl border bg-white p-4 sm:grid-cols-2">
+      <input name="title" placeholder="Lesson title" required className={inputClass} />
+      <input name="slug" placeholder="slug" required className={inputClass} />
+      <select name="type" className={inputClass}>
         <option value="VIDEO">Video</option>
         <option value="MANUAL">Manual</option>
         <option value="EXAM">Exam</option>
       </select>
-      <input name="durationMinutes" type="number" placeholder="Min" className="w-20 rounded border px-2 py-1" />
-      <button type="submit" className="rounded bg-storm-medium-blue px-3 py-1 text-sm text-white">
+      <input name="durationMinutes" type="number" placeholder="Duration (min)" className={inputClass} />
+      <button
+        type="submit"
+        className="min-h-11 rounded-lg bg-storm-medium-blue px-4 py-2.5 text-sm font-semibold text-white sm:col-span-2"
+      >
         Add lesson
       </button>
     </form>

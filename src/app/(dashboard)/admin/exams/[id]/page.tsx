@@ -1,7 +1,8 @@
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { prisma } from "@/lib/db";
-import { AddQuestionForm } from "./AddQuestionForm";
+import { getExamAdmin, listUsersForAssignment } from "@/lib/actions/exams-admin";
+import { ExamDetailClient } from "./ExamDetailClient";
 
 export default async function AdminExamPage({
   params,
@@ -9,38 +10,21 @@ export default async function AdminExamPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const exam = await prisma.exam.findUnique({
-    where: { id },
-    include: {
-      questions: {
-        orderBy: { sortOrder: "asc" },
-        include: { options: true },
-      },
-    },
-  });
+  const [exam, users] = await Promise.all([getExamAdmin(id), listUsersForAssignment()]);
   if (!exam) notFound();
 
   return (
     <>
-      <PageHeader title={exam.title} description="Add multiple-choice questions." />
-      <AddQuestionForm examId={exam.id} />
-      <ul className="mt-8 space-y-4">
-        {exam.questions.map((q, i) => (
-          <li key={q.id} className="rounded-xl border bg-white p-4">
-            <p className="font-medium text-storm-navy">
-              {i + 1}. {q.text}
-            </p>
-            <ul className="mt-2 text-sm text-storm-navy/70">
-              {q.options.map((o) => (
-                <li key={o.id}>
-                  {o.isCorrect ? "✓ " : ""}
-                  {o.text}
-                </li>
-              ))}
-            </ul>
-          </li>
-        ))}
-      </ul>
+      <PageHeader
+        title={exam.title}
+        description={exam.course?.title ?? "Standalone exam"}
+        action={
+          <Link href="/admin/exams" className="text-sm text-storm-medium-blue no-underline">
+            ← All exams
+          </Link>
+        }
+      />
+      <ExamDetailClient exam={exam} allUsers={users} />
     </>
   );
 }

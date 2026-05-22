@@ -283,16 +283,21 @@ export async function bootstrapDatabase(prisma: PrismaClient) {
           const exam = await prisma.exam.create({
             data: {
               lessonId: created.id,
+              courseId: course.id,
               title: `${c.title} — Final Exam`,
               passingScore: c.exam.passingScore,
               timeLimitMinutes: c.exam.timeLimitMinutes,
               attemptsAllowed: c.exam.attemptsAllowed,
+              published: true,
+              gradeVisibility: "LEARNER_VISIBLE",
+              gradesPublishedAt: new Date(),
             },
           });
 
           const q1 = await prisma.question.create({
             data: {
               examId: exam.id,
+              type: "MULTIPLE_CHOICE",
               text: "What is the primary purpose of a backflow preventer?",
               sortOrder: 0,
             },

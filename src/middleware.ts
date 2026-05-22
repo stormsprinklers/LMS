@@ -22,9 +22,16 @@ export default auth((req) => {
 
   if (pathname.startsWith("/admin/") && req.auth) {
     const role = (req.auth.user as { role?: string })?.role;
-    if (role !== "ADMIN") {
-      return NextResponse.redirect(new URL("/", req.nextUrl.origin));
+    if (role === "ADMIN") {
+      return NextResponse.next();
     }
+    if (
+      role === "COURSE_ADMIN" &&
+      (pathname.startsWith("/admin/grading") || pathname === "/admin")
+    ) {
+      return NextResponse.next();
+    }
+    return NextResponse.redirect(new URL("/", req.nextUrl.origin));
   }
 
   return NextResponse.next();

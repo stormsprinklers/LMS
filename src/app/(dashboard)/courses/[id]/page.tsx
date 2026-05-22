@@ -80,7 +80,7 @@ export default async function CourseDetailPage({
               </Badge>
             ))}
           </div>
-          <h1 className="font-title mt-3 text-3xl font-bold text-storm-navy">
+          <h1 className="font-title mt-3 text-2xl font-bold text-storm-navy sm:text-3xl break-words">
             {course.title}
           </h1>
           <p className="mt-3 text-storm-navy/70">{course.description}</p>

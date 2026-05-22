@@ -37,7 +37,7 @@ export async function createLesson(data: {
   type: "VIDEO" | "MANUAL" | "EXAM";
   durationMinutes?: number;
 }) {
-  await requireAdmin();
+  const session = await requireAdmin();
   const count = await prisma.lesson.count({ where: { moduleId: data.moduleId } });
   const lesson = await prisma.lesson.create({
     data: {
@@ -64,13 +64,20 @@ export async function createLesson(data: {
     });
   }
   if (data.type === "EXAM") {
+    const mod = await prisma.module.findUnique({
+      where: { id: data.moduleId },
+      select: { courseId: true },
+    });
     await prisma.exam.create({
       data: {
         lessonId: lesson.id,
+        courseId: mod?.courseId,
         title: `${data.title} — Exam`,
         passingScore: 80,
         timeLimitMinutes: 30,
         attemptsAllowed: 3,
+        published: true,
+        createdById: session.user.id,
       },
     });
   }
@@ -87,7 +94,7 @@ export async function addExamQuestion(
   await requireAdmin();
   const count = await prisma.question.count({ where: { examId } });
   const question = await prisma.question.create({
-    data: { examId, text, sortOrder: count },
+    data: { examId, text, sortOrder: count, type: "MULTIPLE_CHOICE" },
   });
   await prisma.answerOption.createMany({
     data: options.map((o, i) => ({

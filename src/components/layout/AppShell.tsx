@@ -1,14 +1,18 @@
-import { Header } from "./Header";
-import { Sidebar } from "./Sidebar";
+import { auth } from "@/auth";
+import { getUnreadNotificationCount } from "@/lib/actions/grading";
+import { MobileShell } from "./MobileShell";
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+export async function AppShell({ children }: { children: React.ReactNode }) {
+  const session = await auth();
+  const name = session?.user?.name ?? "Team Member";
+  const role = (session?.user as { role?: string })?.role ?? "EMPLOYEE";
+  const unread = session?.user?.id
+    ? await getUnreadNotificationCount()
+    : 0;
+
   return (
-    <div className="flex min-h-screen">
-      <Sidebar />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <Header />
-        <main className="flex-1 overflow-auto p-6 lg:p-8">{children}</main>
-      </div>
-    </div>
+    <MobileShell unread={unread} userName={name} userRole={role}>
+      {children}
+    </MobileShell>
   );
 }

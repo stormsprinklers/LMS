@@ -9,12 +9,13 @@ import type { Exam } from "@/lib/types";
 
 const statusConfig: Record<
   Exam["status"],
-  { label: string; variant: "success" | "warning" | "default" | "pink" }
+  { label: string; variant: "success" | "warning" | "default" | "pink" | "info" }
 > = {
   available: { label: "Ready to take", variant: "warning" },
   passed: { label: "Passed", variant: "success" },
   failed: { label: "Retake required", variant: "pink" },
   locked: { label: "Complete prerequisites", variant: "default" },
+  pending: { label: "Under review", variant: "info" },
 };
 
 export const metadata = { title: "Exams" };
@@ -34,6 +35,9 @@ export default async function ExamsPage() {
         {exams.map((exam) => {
           const { label, variant } = statusConfig[exam.status];
           const canTake = exam.status === "available" || exam.status === "failed";
+          const viewResults =
+            exam.status === "passed" ||
+            exam.status === "pending";
 
           return (
             <Card key={exam.id}>
@@ -59,24 +63,24 @@ export default async function ExamsPage() {
                     </div>
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center">
                   <Badge variant={variant}>{label}</Badge>
                   {canTake ? (
                     <Link
                       href={`/exams/${exam.id}/take`}
-                      className="rounded-lg bg-storm-medium-blue px-4 py-2 text-sm font-semibold text-white no-underline transition-opacity hover:opacity-90"
+                      className="flex min-h-11 items-center justify-center rounded-lg bg-storm-medium-blue px-4 py-2.5 text-center text-sm font-semibold text-white no-underline transition-opacity hover:opacity-90"
                     >
                       Start exam
                     </Link>
-                  ) : exam.status === "passed" ? (
+                  ) : viewResults ? (
                     <Link
                       href={`/exams/${exam.id}/results`}
-                      className="rounded-lg border border-storm-medium-blue px-4 py-2 text-sm font-semibold text-storm-medium-blue no-underline"
+                      className="flex min-h-11 items-center justify-center rounded-lg border border-storm-medium-blue px-4 py-2.5 text-center text-sm font-semibold text-storm-medium-blue no-underline"
                     >
                       View results
                     </Link>
                   ) : (
-                    <span className="rounded-lg bg-storm-light-grey px-4 py-2 text-sm text-storm-navy/50">
+                    <span className="flex min-h-11 items-center justify-center rounded-lg bg-storm-light-grey px-4 py-2.5 text-center text-sm text-storm-navy/50">
                       Locked
                     </span>
                   )}

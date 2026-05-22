@@ -4,6 +4,9 @@ import { createCourse } from "@/lib/actions/admin";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+const inputClass =
+  "w-full min-h-11 rounded-lg border border-storm-light-blue/60 px-3 py-2 text-sm";
+
 export function CreateCourseForm() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -27,7 +30,7 @@ export function CreateCourseForm() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="rounded-lg bg-storm-pink px-4 py-2 text-sm font-semibold text-white"
+        className="min-h-11 w-full rounded-lg bg-storm-pink px-4 py-2.5 text-sm font-semibold text-white sm:w-auto"
       >
         + New course
       </button>
@@ -35,17 +38,17 @@ export function CreateCourseForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="mt-4 space-y-3 rounded-xl border bg-white p-4">
-      <input name="title" placeholder="Title" required className="w-full rounded border px-3 py-2" />
-      <input name="slug" placeholder="slug-url" required className="w-full rounded border px-3 py-2" />
-      <textarea name="description" placeholder="Description" required className="w-full rounded border px-3 py-2" />
-      <input name="category" placeholder="Category" required className="w-full rounded border px-3 py-2" />
-      <input name="estimatedHours" type="number" step="0.5" placeholder="Hours" required className="w-full rounded border px-3 py-2" />
-      <div className="flex gap-2">
-        <button type="submit" className="rounded-lg bg-storm-medium-blue px-4 py-2 text-sm text-white">
+    <form onSubmit={handleSubmit} className="mt-4 w-full space-y-3 rounded-xl border bg-white p-4">
+      <input name="title" placeholder="Title" required className={inputClass} />
+      <input name="slug" placeholder="slug-url" required className={inputClass} />
+      <textarea name="description" placeholder="Description" required className={inputClass} rows={3} />
+      <input name="category" placeholder="Category" required className={inputClass} />
+      <input name="estimatedHours" type="number" step="0.5" placeholder="Hours" required className={inputClass} />
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <button type="submit" className="min-h-11 rounded-lg bg-storm-medium-blue px-4 py-2.5 text-sm text-white">
           Create
         </button>
-        <button type="button" onClick={() => setOpen(false)} className="text-sm text-storm-navy/60">
+        <button type="button" onClick={() => setOpen(false)} className="min-h-11 text-sm text-storm-navy/60">
           Cancel
         </button>
       </div>

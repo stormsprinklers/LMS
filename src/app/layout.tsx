@@ -14,6 +14,12 @@ const bodyFont = Source_Sans_3({
   weight: ["400", "500", "600"],
 });
 
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+};
+
 export const metadata: Metadata = {
   title: {
     default: "Storm Sprinklers LMS",

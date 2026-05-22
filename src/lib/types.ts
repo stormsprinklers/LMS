@@ -31,7 +31,7 @@ export interface Exam {
   passingScore: number;
   timeLimitMinutes: number;
   attemptsAllowed: number;
-  status: "available" | "passed" | "failed" | "locked";
+  status: "available" | "passed" | "failed" | "locked" | "pending";
 }
 
 export interface Certification {

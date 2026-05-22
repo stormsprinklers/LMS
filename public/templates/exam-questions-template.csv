@@ -1,0 +1,6 @@
+question_type,question_text,sort_order,option_a,option_b,option_c,option_d,correct_options,slider_min,slider_max,slider_correct,slider_tolerance,matching_pairs,free_response_max_length
+MULTIPLE_CHOICE,"What is 2+2?",0,2,3,4,5,D,,,,,,,
+MULTIPLE_SELECT,"Select prime numbers",1,2,3,4,5,B|D,,,,,,,
+FREE_RESPONSE,"Describe backflow prevention",2,,,,,,,,,,,500
+SLIDER,"Set pressure to 40 PSI",3,,,,,,10,80,40,2,,
+MATCHING,"Match terms",4,,,,,,,,,,"Valve:Controls flow;Head:Distributes water",

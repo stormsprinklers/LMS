@@ -1,0 +1,249 @@
+"use server";
+
+import { prisma } from "@/lib/db";
+import { requireAdmin } from "@/lib/auth-utils";
+import { revalidatePath } from "next/cache";
+import type { GradeVisibility, QuestionType } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
+import { parseQuestionsCsv } from "@/lib/exams/csv-import";
+import type { QuestionInput } from "@/lib/exams/types";
+
+export async function createExam(data: {
+  title: string;
+  description?: string;
+  courseId?: string;
+  passingScore: number;
+  timeLimitMinutes: number;
+  attemptsAllowed: number;
+  shuffleQuestions: boolean;
+  gradeVisibility: GradeVisibility;
+  userIds?: string[];
+}) {
+  const session = await requireAdmin();
+  const exam = await prisma.exam.create({
+    data: {
+      title: data.title,
+      description: data.description,
+      courseId: data.courseId || null,
+      createdById: session.user.id,
+      passingScore: data.passingScore,
+      timeLimitMinutes: data.timeLimitMinutes,
+      attemptsAllowed: data.attemptsAllowed,
+      shuffleQuestions: data.shuffleQuestions,
+      gradeVisibility: data.gradeVisibility,
+      published: true,
+      assignments: data.userIds?.length
+        ? {
+            create: data.userIds.map((userId) => ({ userId })),
+          }
+        : undefined,
+    },
+  });
+  revalidatePath("/admin/exams");
+  return exam.id;
+}
+
+export async function updateExam(
+  examId: string,
+  data: {
+    title?: string;
+    description?: string;
+    courseId?: string | null;
+    passingScore?: number;
+    timeLimitMinutes?: number;
+    attemptsAllowed?: number;
+    shuffleQuestions?: boolean;
+    gradeVisibility?: GradeVisibility;
+    published?: boolean;
+  },
+) {
+  await requireAdmin();
+  await prisma.exam.update({
+    where: { id: examId },
+    data: {
+      ...data,
+      courseId: data.courseId === undefined ? undefined : data.courseId,
+    },
+  });
+  revalidatePath(`/admin/exams/${examId}`);
+  revalidatePath("/admin/exams");
+}
+
+export async function deleteExam(examId: string) {
+  await requireAdmin();
+  await prisma.exam.delete({ where: { id: examId } });
+  revalidatePath("/admin/exams");
+}
+
+export async function assignUsersToExam(examId: string, userIds: string[]) {
+  await requireAdmin();
+  for (const userId of userIds) {
+    await prisma.examAssignment.upsert({
+      where: { examId_userId: { examId, userId } },
+      update: {},
+      create: { examId, userId },
+    });
+  }
+  revalidatePath(`/admin/exams/${examId}`);
+}
+
+export async function removeExamAssignment(examId: string, userId: string) {
+  await requireAdmin();
+  await prisma.examAssignment.delete({
+    where: { examId_userId: { examId, userId } },
+  });
+  revalidatePath(`/admin/exams/${examId}`);
+}
+
+export async function assignCourseAdmin(courseId: string, userId: string) {
+  await requireAdmin();
+  await prisma.user.update({
+    where: { id: userId },
+    data: { role: "COURSE_ADMIN" },
+  });
+  await prisma.courseAdmin.upsert({
+    where: { userId_courseId: { userId, courseId } },
+    update: {},
+    create: { userId, courseId },
+  });
+  revalidatePath(`/admin/courses`);
+}
+
+export async function removeCourseAdmin(courseId: string, userId: string) {
+  await requireAdmin();
+  await prisma.courseAdmin.delete({
+    where: { userId_courseId: { userId, courseId } },
+  });
+}
+
+export async function assignExamGrader(examId: string, userId: string) {
+  await requireAdmin();
+  await prisma.examGrader.upsert({
+    where: { examId_userId: { examId, userId } },
+    update: {},
+    create: { examId, userId },
+  });
+  revalidatePath(`/admin/exams/${examId}`);
+}
+
+export async function addQuestion(examId: string, input: QuestionInput) {
+  await requireAdmin();
+  await validateQuestionInput(input);
+  const question = await prisma.question.create({
+    data: {
+      examId,
+      type: input.type,
+      text: input.text,
+      sortOrder: input.sortOrder,
+      config: input.config ? (input.config as Prisma.InputJsonValue) : undefined,
+      options: input.options?.length
+        ? {
+            create: input.options.map((o, i) => ({
+              text: o.text,
+              isCorrect: o.isCorrect,
+              sortOrder: i,
+            })),
+          }
+        : undefined,
+    },
+  });
+  revalidatePath(`/admin/exams/${examId}`);
+  return question.id;
+}
+
+export async function deleteQuestion(examId: string, questionId: string) {
+  await requireAdmin();
+  await prisma.question.delete({ where: { id: questionId } });
+  revalidatePath(`/admin/exams/${examId}`);
+}
+
+export async function importQuestionsFromCsv(examId: string, csvText: string) {
+  await requireAdmin();
+  const { questions, errors } = parseQuestionsCsv(csvText);
+  if (errors.length) return { error: errors.join("\n") };
+  const baseOrder = await prisma.question.count({ where: { examId } });
+  for (const [i, q] of questions.entries()) {
+    await addQuestion(examId, { ...q, sortOrder: baseOrder + i });
+  }
+  revalidatePath(`/admin/exams/${examId}`);
+  return { imported: questions.length };
+}
+
+export async function publishExamGrades(examId: string) {
+  await requireAdmin();
+  const exam = await prisma.exam.update({
+    where: { id: examId },
+    data: { gradesPublishedAt: new Date() },
+    include: { attempts: { include: { user: true } } },
+  });
+  for (const attempt of exam.attempts) {
+    if (attempt.status === "SUBMITTED_PENDING_GRADE") continue;
+    await prisma.notification.create({
+      data: {
+        userId: attempt.userId,
+        type: "GRADES_PUBLISHED",
+        title: `Grades published: ${exam.title}`,
+        body: `Your exam results for "${exam.title}" are now available.`,
+        link: `/exams/${examId}/results`,
+        metadata: { examId, attemptId: attempt.id },
+      },
+    });
+  }
+  revalidatePath(`/admin/exams/${examId}`);
+  revalidatePath("/exams");
+}
+
+async function validateQuestionInput(input: QuestionInput) {
+  if (input.type === "MULTIPLE_CHOICE") {
+    const correct = input.options?.filter((o) => o.isCorrect) ?? [];
+    if (correct.length !== 1) throw new Error("MC needs exactly one correct answer");
+  }
+  if (input.type === "MULTIPLE_SELECT") {
+    const correct = input.options?.filter((o) => o.isCorrect) ?? [];
+    if (correct.length < 1) throw new Error("Select at least one correct answer");
+  }
+}
+
+export async function listExamsAdmin() {
+  await requireAdmin();
+  return prisma.exam.findMany({
+    orderBy: { updatedAt: "desc" },
+    include: {
+      course: { select: { id: true, slug: true, title: true } },
+      _count: { select: { questions: true, assignments: true, attempts: true } },
+    },
+  });
+}
+
+export async function getExamAdmin(examId: string) {
+  await requireAdmin();
+  return prisma.exam.findUnique({
+    where: { id: examId },
+    include: {
+      course: { select: { id: true, slug: true, title: true } },
+      questions: {
+        orderBy: { sortOrder: "asc" },
+        include: { options: { orderBy: { sortOrder: "asc" } } },
+      },
+      assignments: { include: { user: true } },
+      graders: { include: { user: true } },
+    },
+  });
+}
+
+export async function listUsersForAssignment() {
+  await requireAdmin();
+  return prisma.user.findMany({
+    where: { status: "ACTIVE" },
+    orderBy: { name: "asc" },
+    select: { id: true, email: true, name: true, jobRole: true, role: true },
+  });
+}
+
+export async function listCoursesForExam() {
+  await requireAdmin();
+  return prisma.course.findMany({
+    orderBy: { title: "asc" },
+    select: { id: true, slug: true, title: true },
+  });
+}

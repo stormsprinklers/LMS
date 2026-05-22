@@ -10,6 +10,7 @@ datasource db {
 enum UserRole {
   EMPLOYEE
   ADMIN
+  COURSE_ADMIN
 }
 
 enum UserStatus {
@@ -32,6 +33,7 @@ enum LessonProgressStatus {
 
 enum ExamAttemptStatus {
   IN_PROGRESS
+  SUBMITTED_PENDING_GRADE
   PASSED
   FAILED
 }
@@ -42,24 +44,54 @@ enum CertificationStatus {
   EXPIRED
 }
 
+enum QuestionType {
+  MULTIPLE_CHOICE
+  MULTIPLE_SELECT
+  FREE_RESPONSE
+  SLIDER
+  MATCHING
+}
+
+enum GradeVisibility {
+  ADMIN_ONLY
+  LEARNER_VISIBLE
+}
+
+enum GradingTaskStatus {
+  PENDING
+  COMPLETED
+}
+
+enum NotificationType {
+  FREE_RESPONSE_TO_GRADE
+  GRADES_PUBLISHED
+}
+
 model User {
-  id            String    @id @default(cuid())
-  email         String    @unique
+  id            String     @id @default(cuid())
+  email         String     @unique
   passwordHash  String?
   name          String?
-  role          UserRole  @default(EMPLOYEE)
+  role          UserRole   @default(EMPLOYEE)
   status        UserStatus @default(INVITED)
   jobRole       String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
 
-  accounts         Account[]
-  sessions         Session[]
-  invitesCreated   Invite[]         @relation("InviteCreator")
-  enrollments      Enrollment[]
-  lessonProgress   LessonProgress[]
-  examAttempts     ExamAttempt[]
-  certifications   Certification[]
+  accounts           Account[]
+  sessions           Session[]
+  invitesCreated     Invite[]         @relation("InviteCreator")
+  enrollments        Enrollment[]
+  lessonProgress     LessonProgress[]
+  examAttempts       ExamAttempt[]
+  certifications     Certification[]
+  examsCreated       Exam[]           @relation("ExamCreator")
+  courseAdmins       CourseAdmin[]
+  examAssignments    ExamAssignment[]
+  examGraders        ExamGrader[]
+  examAnswersGraded  ExamAnswer[]     @relation("GradedBy")
+  gradingTasks       GradingTask[]    @relation("GradingAssignee")
+  notifications      Notification[]
 }
 
 model Account {
@@ -124,6 +156,19 @@ model Course {
   enrollments        Enrollment[]
   certificationRules CertificationRule[]
   courseAssignments  CourseAssignment[]
+  courseAdmins       CourseAdmin[]
+  exams              Exam[]
+}
+
+model CourseAdmin {
+  id        String   @id @default(cuid())
+  userId    String
+  courseId  String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, courseId])
 }
 
 model CourseAssignment {
@@ -209,24 +254,64 @@ model LessonProgress {
 }
 
 model Exam {
-  id               String     @id @default(cuid())
-  lessonId         String     @unique
-  title            String
-  passingScore     Int
-  timeLimitMinutes Int
-  attemptsAllowed  Int        @default(3)
-  lesson           Lesson     @relation(fields: [lessonId], references: [id], onDelete: Cascade)
-  questions        Question[]
-  attempts         ExamAttempt[]
+  id                String          @id @default(cuid())
+  title             String
+  description       String?         @db.Text
+  lessonId          String?         @unique
+  courseId          String?
+  createdById       String?
+  passingScore      Int
+  timeLimitMinutes  Int
+  attemptsAllowed   Int             @default(3)
+  shuffleQuestions  Boolean         @default(false)
+  published         Boolean         @default(true)
+  gradeVisibility   GradeVisibility @default(ADMIN_ONLY)
+  gradesPublishedAt DateTime?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  lesson      Lesson?          @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  course      Course?          @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  createdBy   User?            @relation("ExamCreator", fields: [createdById], references: [id])
+  questions   Question[]
+  attempts    ExamAttempt[]
+  assignments ExamAssignment[]
+  graders     ExamGrader[]
+}
+
+model ExamAssignment {
+  id        String   @id @default(cuid())
+  examId    String
+  userId    String
+  createdAt DateTime @default(now())
+  exam      Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([examId, userId])
+}
+
+model ExamGrader {
+  id        String   @id @default(cuid())
+  examId    String
+  userId    String
+  createdAt DateTime @default(now())
+  exam      Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([examId, userId])
 }
 
 model Question {
-  id           String         @id @default(cuid())
-  examId       String
-  text         String         @db.Text
-  sortOrder    Int            @default(0)
-  exam         Exam           @relation(fields: [examId], references: [id], onDelete: Cascade)
-  options      AnswerOption[]
+  id        String       @id @default(cuid())
+  examId    String
+  type      QuestionType @default(MULTIPLE_CHOICE)
+  text      String       @db.Text
+  sortOrder Int          @default(0)
+  config    Json?
+  exam      Exam         @relation(fields: [examId], references: [id], onDelete: Cascade)
+  options   AnswerOption[]
+  answers   ExamAnswer[]
+  gradingTasks GradingTask[]
 }
 
 model AnswerOption {
@@ -239,17 +324,67 @@ model AnswerOption {
 }
 
 model ExamAttempt {
-  id          String            @id @default(cuid())
-  userId      String
-  examId      String
-  score       Int?
-  passed      Boolean?
-  status      ExamAttemptStatus @default(IN_PROGRESS)
-  startedAt   DateTime          @default(now())
-  completedAt DateTime?
-  answers     Json?
-  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  exam        Exam              @relation(fields: [examId], references: [id], onDelete: Cascade)
+  id                  String            @id @default(cuid())
+  userId              String
+  examId              String
+  score               Int?
+  passed              Boolean?
+  status              ExamAttemptStatus @default(IN_PROGRESS)
+  pendingManualGrade  Boolean           @default(false)
+  questionOrder       Json?
+  startedAt           DateTime          @default(now())
+  completedAt         DateTime?
+  answers             Json?
+  user                User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  exam                Exam              @relation(fields: [examId], references: [id], onDelete: Cascade)
+  examAnswers         ExamAnswer[]
+  gradingTasks        GradingTask[]
+}
+
+model ExamAnswer {
+  id           String    @id @default(cuid())
+  attemptId    String
+  questionId   String
+  value        Json
+  autoScore    Float?
+  manualScore  Float?
+  feedback     String?   @db.Text
+  gradedById   String?
+  gradedAt     DateTime?
+  attempt      ExamAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question     Question    @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  gradedBy     User?       @relation("GradedBy", fields: [gradedById], references: [id])
+
+  @@unique([attemptId, questionId])
+}
+
+model GradingTask {
+  id               String            @id @default(cuid())
+  attemptId        String
+  questionId       String
+  courseId         String?
+  status           GradingTaskStatus @default(PENDING)
+  assignedToUserId String?
+  createdAt        DateTime          @default(now())
+  completedAt      DateTime?
+  attempt          ExamAttempt       @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question         Question          @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  assignedTo       User?             @relation("GradingAssignee", fields: [assignedToUserId], references: [id])
+
+  @@unique([attemptId, questionId])
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType
+  title     String
+  body      String           @db.Text
+  link      String?
+  readAt    DateTime?
+  metadata  Json?
+  createdAt DateTime         @default(now())
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model CertificationRule {
