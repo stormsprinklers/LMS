@@ -6,11 +6,19 @@ The error `404: NOT_FOUND` with an ID like `sfo1::...` is **Vercel’s platform*
 
 1. **Vercel project** — Import `stormsprinklers/LMS` from GitHub. Root directory: `.` (repository root).
 
-2. **Environment variables** (Production + Preview):
-   - `DATABASE_URL`
-   - `AUTH_SECRET`
-   - `NEXTAUTH_URL` = `https://learning.stormsprinklers.com`
-   - Optional: `MUX_*`, `BLOB_READ_WRITE_TOKEN`
+2. **Environment variables** — Project → **Settings → Environment Variables**:
+
+   | Variable | Example / notes |
+   |----------|-----------------|
+   | `DATABASE_URL` | Neon connection string (`postgresql://...?sslmode=require`) |
+   | `AUTH_SECRET` | Random string (`openssl rand -base64 32`) |
+   | `NEXTAUTH_URL` | `https://learning.stormsprinklers.com` |
+
+   Enable each for **Production**, **Preview**, and **Development** so they are available at **build time** (required for `prisma migrate deploy`).
+
+   Optional: `MUX_TOKEN_ID`, `MUX_TOKEN_SECRET`, `MUX_WEBHOOK_SECRET`, `BLOB_READ_WRITE_TOKEN`
+
+   **If the build log shows `Environment variable not found: DATABASE_URL`**, the deploy never completed — add `DATABASE_URL` and redeploy.
 
 3. **Build succeeds** — Deployments tab → latest deployment must be **Ready**, not Error or Canceled. Open build logs if it failed (often missing `DATABASE_URL` or failed `prisma migrate deploy`).
 
