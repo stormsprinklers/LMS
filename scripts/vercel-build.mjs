@@ -18,94 +18,47 @@ if (!process.env.DATABASE_URL) {
   process.exit(1);
 }
 
-/**
- * Prisma migrate uses PostgreSQL advisory locks. Neon's *pooler* URL cannot
- * acquire them (P1002 timeout). Use a direct (non-pooler) connection for migrations.
- */
-function resolveMigrationDatabaseUrl() {
-  if (process.env.DIRECT_DATABASE_URL) {
-    return process.env.DIRECT_DATABASE_URL;
-  }
-  const pooled = process.env.DATABASE_URL;
-  if (pooled.includes("-pooler.")) {
-    const direct = pooled.replace("-pooler.", ".");
-    console.log(
-      "Migrations: using direct Neon host (derived from DATABASE_URL by removing -pooler).",
-    );
-    console.log(
-      "Recommended: set DIRECT_DATABASE_URL in Vercel to Neon’s explicit direct connection string.",
-    );
-    return direct;
-  }
-  return pooled;
-}
-
-function sleep(ms) {
-  const end = Date.now() + ms;
-  while (Date.now() < end) {
-    /* spin */
-  }
-}
-
-function runWithMigrationDb(command) {
-  const migrationUrl = resolveMigrationDatabaseUrl();
-  const env = { ...process.env, DATABASE_URL: migrationUrl };
-  execSync(command, { stdio: "inherit", env });
-}
-
-function migrateDeployWithRetry(maxAttempts = 4) {
-  const migrationUrl = resolveMigrationDatabaseUrl();
-  const env = { ...process.env, DATABASE_URL: migrationUrl };
-
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      console.log(
-        `Running prisma migrate deploy… (attempt ${attempt}/${maxAttempts})`,
-      );
-      execSync("npx prisma migrate deploy", { stdio: "inherit", env });
-      return;
-    } catch (err) {
-      const isLast = attempt === maxAttempts;
-      const message = err?.message ?? String(err);
-      const lockTimeout =
-        message.includes("advisory lock") || message.includes("P1002");
-
-      if (isLast) {
-        console.error(`
+// Migrations are not run during Vercel builds by default. Prisma migrate deploy
+// uses a Postgres advisory lock that often times out on Neon (P1002), especially
+// with concurrent deploys — without changing anything in Neon.
+//
+// When you add new prisma/migrations/* files, apply them once from your machine:
+//   npm run db:migrate:deploy
+// (uses DATABASE_URL from .env — same string as on Vercel.)
+//
+// Opt-in to run migrate on a single deploy: set RUN_PRISMA_MIGRATE=1 on Vercel.
+if (process.env.RUN_PRISMA_MIGRATE === "1") {
+  console.log("RUN_PRISMA_MIGRATE=1 — running prisma migrate deploy…");
+  try {
+    execSync("npx prisma migrate deploy", { stdio: "inherit" });
+  } catch (err) {
+    console.error(`
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  BUILD FAILED: prisma migrate deploy
-
-  Common fixes on Neon + Vercel:
-  1. Add DIRECT_DATABASE_URL — Neon dashboard → Connection details →
-     "Direct connection" (NOT the pooler URL). Enable for Production + Preview.
-  2. Ensure DATABASE_URL uses the pooler for the running app; migrations need direct.
-  3. If a previous deploy was interrupted, wait 1–2 minutes and redeploy
-     (stale advisory lock). Avoid multiple simultaneous production deploys.
+  prisma migrate deploy failed. Unset RUN_PRISMA_MIGRATE on Vercel and redeploy
+  (builds skip migrations by default). Apply migrations locally instead:
+    npm run db:migrate:deploy
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `);
-        throw err;
-      }
-
-      const waitSec = lockTimeout ? 15 : 8;
-      console.warn(
-        `migrate deploy failed (attempt ${attempt}/${maxAttempts}), retrying in ${waitSec}s…`,
-      );
-      sleep(waitSec * 1000);
-    }
+    throw err;
   }
+} else {
+  console.log(
+    "Skipping prisma migrate deploy on build (avoids Neon advisory-lock timeouts).",
+  );
+  console.log(
+    "After new migrations are added, run once locally: npm run db:migrate:deploy",
+  );
 }
-
-migrateDeployWithRetry();
 
 console.log("Backfilling course builder curriculum from legacy lessons…");
 try {
-  runWithMigrationDb("npx tsx prisma/migrate-courses-to-builder.ts");
+  execSync("npx tsx prisma/migrate-courses-to-builder.ts", { stdio: "inherit" });
 } catch (e) {
   console.warn("Course builder backfill skipped or partial:", e.message ?? e);
 }
 
 console.log("Running production seed (skipped if admin already exists)…");
-runWithMigrationDb("npx tsx prisma/seed-production.ts");
+execSync("npx tsx prisma/seed-production.ts", { stdio: "inherit" });
 
 console.log("Running next build…");
 execSync("npx next build", { stdio: "inherit" });

@@ -10,14 +10,20 @@ The error `404: NOT_FOUND` with an ID like `sfo1::...` is **Vercel’s platform*
 
    | Variable | Example / notes |
    |----------|-----------------|
-   | `DATABASE_URL` | Neon **pooled** connection string (hostname contains `-pooler`) |
-   | `DIRECT_DATABASE_URL` | Neon **direct** connection (no `-pooler` in host). Required for reliable `prisma migrate deploy` on Vercel. |
+   | `DATABASE_URL` | Neon connection string (`postgresql://...?sslmode=require`) |
    | `AUTH_SECRET` | Random string (`openssl rand -base64 32`) |
    | `NEXTAUTH_URL` | `https://learning.stormsprinklers.com` |
 
-   Enable each for **Production**, **Preview**, and **Development** so they are available at **build time** (required for `prisma migrate deploy`).
+   Enable each for **Production**, **Preview**, and **Development** so they are available at **build time**.
 
-   **Migrate timeout (P1002 / advisory lock):** Builds run migrations against `DIRECT_DATABASE_URL`. If only `DATABASE_URL` is set, the build script strips `-pooler` from the host as a fallback. If deploys still fail, add `DIRECT_DATABASE_URL` from Neon → Connection details → **Direct connection**, wait 2 minutes, and redeploy (avoid two production builds at once).
+   **Database migrations:** Vercel builds **do not** run `prisma migrate deploy` (avoids Neon advisory-lock timeouts). Your existing Neon database is unchanged. When you add new files under `prisma/migrations/`, apply them once from your computer:
+
+   ```bash
+   # .env.local with the same DATABASE_URL as production
+   npm run db:migrate:deploy
+   ```
+
+   Then redeploy on Vercel. Optional: set `RUN_PRISMA_MIGRATE=1` on Vercel only if you intentionally want migrations during a build (not recommended on Neon).
 
    Optional: `MUX_TOKEN_ID`, `MUX_TOKEN_SECRET`, `MUX_WEBHOOK_SECRET`, `BLOB_READ_WRITE_TOKEN`
 
