@@ -15,11 +15,13 @@ export function QuestionTake({
   index,
   value,
   onChange,
+  unanswered = false,
 }: {
   question: QuestionData;
   index: number;
   value: unknown;
   onChange: (v: unknown) => void;
+  unanswered?: boolean;
 }) {
   const cfg = question.config as Record<string, unknown> | null;
   const titleId = `question-${question.id}-title`;
@@ -27,15 +29,26 @@ export function QuestionTake({
   return (
     <section
       aria-labelledby={titleId}
-      className="rounded-xl border border-storm-light-blue/60 bg-white p-4 sm:p-5"
+      className={`rounded-xl border bg-white p-4 sm:p-5 ${
+        unanswered
+          ? "border-amber-400 ring-2 ring-amber-200"
+          : "border-storm-light-blue/60"
+      }`}
     >
-      <h2
-        id={titleId}
-        className="text-base font-medium leading-snug text-storm-navy sm:text-[1.05rem]"
-      >
-        <span className="text-storm-navy/70">{index + 1}. </span>
-        {question.text}
-      </h2>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <h2
+          id={titleId}
+          className="text-base font-medium leading-snug text-storm-navy sm:text-[1.05rem]"
+        >
+          <span className="text-storm-navy/70">{index + 1}. </span>
+          {question.text}
+        </h2>
+        {unanswered && (
+          <span className="shrink-0 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-900">
+            Not answered
+          </span>
+        )}
+      </div>
 
       <div className="mt-4">
         {question.type === "MULTIPLE_CHOICE" && (
