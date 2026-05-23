@@ -4,6 +4,7 @@ import { requireAdmin } from "@/lib/auth-utils";
 import { listInvites, listUsers } from "@/lib/actions/invites";
 import { isPrismaMissingColumn } from "@/lib/db/prisma-errors";
 import type { UserRole } from "@prisma/client";
+import { DeleteUserButton } from "./DeleteUserButton";
 import { InviteForm } from "./InviteForm";
 import { OpenSignupLinkForm } from "./OpenSignupLinkForm";
 import { OpenSignupLinksList } from "./OpenSignupLinksList";
@@ -68,8 +69,8 @@ export default async function AdminUsersPage() {
               key={u.id}
               className="rounded-xl border border-storm-light-blue/60 bg-white p-4"
             >
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="min-w-0">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0 flex-1">
                   <p className="font-title font-bold text-storm-navy">
                     {u.name ?? u.email}
                   </p>
@@ -77,11 +78,24 @@ export default async function AdminUsersPage() {
                     {u.email} · {u.status}
                   </p>
                 </div>
-                <UserRoleSelect
-                  userId={u.id}
-                  currentRole={u.role as UserRole}
-                  isSelf={u.id === session.user.id}
-                />
+                <div className="flex flex-col items-stretch gap-3 sm:items-end">
+                  <UserRoleSelect
+                    userId={u.id}
+                    currentRole={u.role as UserRole}
+                    isSelf={u.id === session.user.id}
+                  />
+                  <DeleteUserButton
+                    userId={u.id}
+                    email={u.email}
+                    displayName={u.name ?? u.email}
+                    disabled={u.id === session.user.id}
+                    disabledReason={
+                      u.id === session.user.id
+                        ? "You cannot delete your own account"
+                        : undefined
+                    }
+                  />
+                </div>
               </div>
             </li>
           ))}

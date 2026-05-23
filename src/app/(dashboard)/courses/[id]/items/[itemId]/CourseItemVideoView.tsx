@@ -1,6 +1,8 @@
 "use client";
 
 import { updateCourseItemVideoProgress } from "@/lib/actions/course-progress";
+import { YouTubePlayer } from "@/components/video/YouTubePlayer";
+import { isYouTubeUrl } from "@/lib/video/youtube";
 import MuxPlayer from "@mux/mux-player-react";
 import { useCallback, useRef, type SyntheticEvent } from "react";
 
@@ -33,6 +35,14 @@ export function CourseItemVideoView({
     [courseItemId, estimatedMinutes],
   );
 
+  const markComplete = useCallback(() => {
+    void updateCourseItemVideoProgress(
+      courseItemId,
+      999999,
+      estimatedMinutes ?? undefined,
+    );
+  }, [courseItemId, estimatedMinutes]);
+
   const onMuxTimeUpdate = useCallback(
     (e: Event) => {
       const target = e.target as HTMLVideoElement;
@@ -56,15 +66,22 @@ export function CourseItemVideoView({
           startTime={initialSeconds}
           streamType="on-demand"
           onTimeUpdate={onMuxTimeUpdate}
-          onEnded={() =>
-            void updateCourseItemVideoProgress(
-              courseItemId,
-              999999,
-              estimatedMinutes ?? undefined,
-            )
-          }
+          onEnded={markComplete}
           className="aspect-video w-full"
           accentColor="#4C9BC8"
+        />
+      </div>
+    );
+  }
+
+  if (videoUrl && isYouTubeUrl(videoUrl)) {
+    return (
+      <div className="mt-6">
+        <YouTubePlayer
+          urlOrId={videoUrl}
+          startSeconds={initialSeconds}
+          onTimeUpdate={saveProgress}
+          onEnded={markComplete}
         />
       </div>
     );
@@ -78,13 +95,7 @@ export function CourseItemVideoView({
           controls
           className="aspect-video w-full"
           onTimeUpdate={onVideoTimeUpdate}
-          onEnded={() =>
-            void updateCourseItemVideoProgress(
-              courseItemId,
-              999999,
-              estimatedMinutes ?? undefined,
-            )
-          }
+          onEnded={markComplete}
         />
       </div>
     );

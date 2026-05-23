@@ -62,15 +62,35 @@ export async function restoreUser(userId: string) {
 }
 
 export async function deleteUser(userId: string) {
-  await requireAdmin();
+  const session = await requireAdmin();
+
+  if (userId === session.user.id) {
+    return { error: "You cannot delete your own account." };
+  }
+
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { role: true },
+    select: { role: true, email: true },
   });
-  if (user?.role === "ADMIN") {
-    return { error: "Cannot delete an admin account." };
+  if (!user) return { error: "User not found." };
+
+  if (user.role === "ADMIN") {
+    const adminCount = await prisma.user.count({
+      where: { role: "ADMIN", archived: false },
+    });
+    if (adminCount <= 1) {
+      return { error: "Cannot delete the last active admin." };
+    }
   }
-  await prisma.user.delete({ where: { id: userId } });
+
+  try {
+    await prisma.user.delete({ where: { id: userId } });
+  } catch {
+    return {
+      error: "Could not delete this user. Try archiving them instead.",
+    };
+  }
+
   revalidateAdmin();
   return { success: true as const };
 }

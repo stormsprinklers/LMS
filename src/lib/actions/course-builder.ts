@@ -2,7 +2,7 @@
 
 import { prisma } from "@/lib/db";
 import { requireAdmin, requireManageCourse, requireManageCourseItem, requireManageModule, requireStaff } from "@/lib/auth-utils";
-import { revalidatePath } from "next/cache";
+import { isYouTubeUrl } from "@/lib/video/youtube";
 import { validateCourseForPublish } from "@/lib/courses/validate-publish";
 import type {
   ContentStatus,
@@ -13,6 +13,7 @@ import type {
   ModuleUnlockRule,
   Prisma,
 } from "@prisma/client";
+import { revalidatePath } from "next/cache";
 
 function revalidateCourse(courseId: string, slug?: string) {
   revalidatePath("/admin/courses");
@@ -366,8 +367,8 @@ export async function updateLessonContent(
 export async function updateVideoLessonContent(
   itemId: string,
   data: {
-    videoUrl?: string;
-    muxPlaybackId?: string;
+    videoUrl?: string | null;
+    muxPlaybackId?: string | null;
     transcript?: string;
     requiredWatchPercent?: number;
     completionRule?: string;
@@ -382,14 +383,27 @@ export async function updateVideoLessonContent(
   if (!item) return { error: "Not found" };
 
   if (item.videoLessonId) {
+    const videoUrl =
+      data.videoUrl === undefined ? undefined : (data.videoUrl?.trim() || null);
+    const muxPlaybackId =
+      data.muxPlaybackId === undefined ? undefined : (data.muxPlaybackId?.trim() || null);
+
     await prisma.videoLesson.update({
       where: { id: item.videoLessonId },
       data: {
-        videoUrl: data.videoUrl,
-        muxPlaybackId: data.muxPlaybackId,
+        ...(videoUrl !== undefined && { videoUrl }),
+        ...(muxPlaybackId !== undefined && { muxPlaybackId }),
         transcript: data.transcript,
         requiredWatchPercent: data.requiredWatchPercent,
         completionRule: data.completionRule,
+        ...(videoUrl !== undefined || muxPlaybackId !== undefined
+          ? {
+              status:
+                muxPlaybackId || (videoUrl && isYouTubeUrl(videoUrl))
+                  ? "ready"
+                  : undefined,
+            }
+          : {}),
       },
     });
   }

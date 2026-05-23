@@ -1,6 +1,8 @@
 "use client";
 
 import { updateCourseItem, updateVideoLessonContent } from "@/lib/actions/course-builder";
+import { YouTubeIframe } from "@/components/video/YouTubeIframe";
+import { isYouTubeUrl, parseYouTubeVideoId } from "@/lib/video/youtube";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { ContentStatus } from "@prisma/client";
@@ -33,10 +35,12 @@ export function VideoItemEditor({ item }: { item: Item }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const savedVideoUrl = item.videoLesson?.videoUrl ?? "";
   const playbackId =
     item.videoLesson?.muxPlaybackId ??
     item.legacyLesson?.videoAsset?.muxPlaybackId ??
     null;
+  const savedYouTubeId = parseYouTubeVideoId(savedVideoUrl);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -49,8 +53,8 @@ export function VideoItemEditor({ item }: { item: Item }) {
       status: String(fd.get("status")) as ContentStatus,
     });
     await updateVideoLessonContent(item.id, {
-      videoUrl: String(fd.get("videoUrl") || "") || undefined,
-      muxPlaybackId: String(fd.get("muxPlaybackId") || "") || undefined,
+      videoUrl: String(fd.get("videoUrl") ?? "").trim() || null,
+      muxPlaybackId: String(fd.get("muxPlaybackId") || "").trim() || null,
       transcript: String(fd.get("transcript") || "") || undefined,
       requiredWatchPercent: Number(fd.get("requiredWatchPercent")) || 80,
       completionRule: String(fd.get("completionRule")),
@@ -67,6 +71,37 @@ export function VideoItemEditor({ item }: { item: Item }) {
         playbackId={playbackId}
         uploadStatus={item.videoLesson?.status ?? null}
       />
+
+      <p className="text-center text-xs font-medium uppercase tracking-wide text-storm-navy/40">
+        or
+      </p>
+
+      <div className="space-y-3 rounded-xl border border-storm-light-blue/60 bg-storm-light-grey/30 p-4">
+        <label className="block text-sm font-medium text-storm-navy">
+          YouTube link
+          <input
+            name="videoUrl"
+            defaultValue={savedVideoUrl}
+            className={inputClass}
+            placeholder="https://www.youtube.com/watch?v=…"
+          />
+        </label>
+        <p className="text-xs text-storm-navy/50">
+          Paste a YouTube watch, share, or embed URL. Used when no uploaded video is set.
+          {playbackId && " An uploaded video currently takes priority over YouTube."}
+        </p>
+        {savedYouTubeId && (
+          <div className="overflow-hidden rounded-lg">
+            <YouTubeIframe urlOrId={savedVideoUrl} title="YouTube preview" />
+          </div>
+        )}
+        {savedVideoUrl && !isYouTubeUrl(savedVideoUrl) && (
+          <p className="text-xs text-amber-800">
+            This link is not a recognized YouTube URL. It will play as a direct video file if
+            supported by the browser.
+          </p>
+        )}
+      </div>
 
       <label className="block text-sm">
         Title
@@ -144,15 +179,6 @@ export function VideoItemEditor({ item }: { item: Item }) {
               defaultValue={playbackId ?? ""}
               className={inputClass}
               placeholder="Only if not using upload above"
-            />
-          </label>
-          <label className="block text-sm">
-            External video URL (optional)
-            <input
-              name="videoUrl"
-              defaultValue={item.videoLesson?.videoUrl ?? ""}
-              className={inputClass}
-              placeholder="https://… direct MP4 or hosted link"
             />
           </label>
         </div>
