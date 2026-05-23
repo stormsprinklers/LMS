@@ -5,7 +5,7 @@ import {
   getItemAccessState,
   isModuleUnlocked,
 } from "@/lib/courses/completion";
-import type { CourseItemType } from "@prisma/client";
+import type { CourseItemType, ContentStatus } from "@prisma/client";
 
 export type LearnerCourseItem = {
   id: string;
@@ -35,9 +35,13 @@ export async function getLearnerCourseCurriculum(
   userId: string,
   preview = false,
 ) {
+  const itemStatuses: ContentStatus[] = preview
+    ? ["DRAFT", "READY", "PUBLISHED"]
+    : ["PUBLISHED", "READY"];
+
   const course = await prisma.course.findFirst({
     where: preview
-      ? { slug }
+      ? { slug, archived: false }
       : { slug, archived: false, published: true, status: "PUBLISHED" },
     include: {
       settings: true,
@@ -45,7 +49,7 @@ export async function getLearnerCourseCurriculum(
         orderBy: { sortOrder: "asc" },
         include: {
           courseItems: {
-            where: { archived: false, status: { in: ["PUBLISHED", "READY"] } },
+            where: { archived: false, status: { in: itemStatuses } },
             orderBy: { sortOrder: "asc" },
             include: {
               exam: { select: { id: true } },
@@ -74,35 +78,38 @@ export async function getLearnerCourseCurriculum(
   const modules: LearnerModule[] = [];
 
   for (const mod of course.modules) {
-    const moduleUnlocked = await isModuleUnlocked(
-      userId,
-      course.id,
-      mod.id,
-      mod.sortOrder,
-      mod.unlockRule,
-    );
+    const moduleUnlocked = preview
+      ? true
+      : await isModuleUnlocked(
+          userId,
+          course.id,
+          mod.id,
+          mod.sortOrder,
+          mod.unlockRule,
+        );
 
     const items: LearnerCourseItem[] = [];
     for (const item of mod.courseItems) {
-      const priorComplete = await arePriorRequiredItemsComplete(
-        userId,
-        course.id,
-        mod.id,
-        item.sortOrder,
-        progressMap,
-      );
+      const priorComplete = preview
+        ? true
+        : await arePriorRequiredItemsComplete(
+            userId,
+            course.id,
+            mod.id,
+            item.sortOrder,
+            progressMap,
+          );
       const p = progressMap.get(item.id);
-      const access = getItemAccessState(
-        p?.status,
-        moduleUnlocked,
-        priorComplete,
-      );
+      const access = preview
+        ? ("available" as const)
+        : getItemAccessState(p?.status, moduleUnlocked, priorComplete);
 
-      let href = `/courses/${slug}/items/${item.id}`;
+      const previewQuery = preview ? "?preview=1" : "";
+      let href = `/courses/${slug}/items/${item.id}${previewQuery}`;
       if (item.itemType === "EXAM" || item.itemType === "QUIZ") {
         href = item.exam?.id ? `/exams/${item.exam.id}/take` : "/exams";
       } else if (item.itemType === "VIDEO" && item.legacyLessonId) {
-        href = `/courses/${slug}/lessons/${item.legacyLessonId}`;
+        href = `/courses/${slug}/lessons/${item.legacyLessonId}${previewQuery}`;
       }
 
       items.push({

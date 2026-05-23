@@ -12,12 +12,14 @@ export function CourseItemVideoView({
   videoUrl,
   initialSeconds,
   estimatedMinutes,
+  preview = false,
 }: {
   courseItemId: string;
   playbackId: string | null;
   videoUrl: string | null;
   initialSeconds: number;
   estimatedMinutes: number | null;
+  preview?: boolean;
 }) {
   const lastSaved = useRef(0);
 
@@ -102,8 +104,14 @@ export function CourseItemVideoView({
   }
 
   return (
-    <div className="mt-6 flex aspect-video items-center justify-center rounded-xl bg-storm-light-grey text-sm text-storm-navy/60">
-      Video not uploaded yet.
+    <div className="mt-6 flex aspect-video flex-col items-center justify-center gap-2 rounded-xl bg-storm-light-grey px-4 text-center text-sm text-storm-navy/60">
+      <p>No video attached yet.</p>
+      {preview && (
+        <p className="text-xs text-storm-navy/50">
+          In the course builder, upload a file or add a YouTube link, then save video settings.
+          Set status to Published when ready for trainees.
+        </p>
+      )}
     </div>
   );
 }

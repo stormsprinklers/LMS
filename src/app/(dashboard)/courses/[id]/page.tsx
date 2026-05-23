@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { requireUser } from "@/lib/auth-utils";
+import { isCoursePreviewRequest } from "@/lib/courses/preview";
 import { getLearnerCourseCurriculum } from "@/lib/repositories/course-learner";
 import type { CourseItemType } from "@prisma/client";
 import { cn } from "@/lib/utils";
@@ -38,7 +39,8 @@ export default async function CourseDetailPage({
   const { id } = await params;
   const query = await searchParams;
   const session = await requireUser();
-  const preview = query.preview === "1" && session.user.role === "ADMIN";
+  const role = (session.user as { role?: string }).role;
+  const preview = isCoursePreviewRequest(query.preview, role);
 
   const course = await getLearnerCourseCurriculum(id, session.user.id, preview);
   if (!course) notFound();
@@ -55,7 +57,8 @@ export default async function CourseDetailPage({
 
       {preview && (
         <div className="mb-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-900">
-          Preview mode — progression rules may differ for trainees.
+          Preview mode — includes draft items and unlocked modules. Trainees only see
+          published activities.
         </div>
       )}
 
