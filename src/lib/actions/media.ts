@@ -3,29 +3,93 @@
 import { put } from "@vercel/blob";
 import Mux from "@mux/mux-node";
 import { prisma } from "@/lib/db";
-import { requireAdmin } from "@/lib/auth-utils";
+import { requireAdmin, requireManageCourseItem } from "@/lib/auth-utils";
 import { revalidatePath } from "next/cache";
 
-const mux = process.env.MUX_TOKEN_ID && process.env.MUX_TOKEN_SECRET
-  ? new Mux({
-      tokenId: process.env.MUX_TOKEN_ID,
-      tokenSecret: process.env.MUX_TOKEN_SECRET,
-    })
-  : null;
+const mux =
+  process.env.MUX_TOKEN_ID && process.env.MUX_TOKEN_SECRET
+    ? new Mux({
+        tokenId: process.env.MUX_TOKEN_ID,
+        tokenSecret: process.env.MUX_TOKEN_SECRET,
+      })
+    : null;
 
-export async function createMuxUpload(lessonId: string) {
-  await requireAdmin();
-  if (!mux) return { error: "Mux is not configured." };
+function muxCorsOrigin() {
+  return process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+}
+
+async function createMuxDirectUpload(passthrough: string) {
+  if (!mux) {
+    return { error: "Mux is not configured. Set MUX_TOKEN_ID and MUX_TOKEN_SECRET." };
+  }
 
   const upload = await mux.video.uploads.create({
-    cors_origin: process.env.NEXTAUTH_URL ?? "http://localhost:3000",
+    cors_origin: muxCorsOrigin(),
     new_asset_settings: {
       playback_policy: ["public"],
-      passthrough: lessonId,
+      passthrough,
     },
   });
 
   return { uploadId: upload.id, url: upload.url };
+}
+
+export async function createMuxUpload(lessonId: string) {
+  await requireAdmin();
+  return createMuxDirectUpload(`lesson:${lessonId}`);
+}
+
+export async function createMuxUploadForCourseItem(courseItemId: string) {
+  await requireManageCourseItem(courseItemId);
+
+  const item = await prisma.courseItem.findUnique({
+    where: { id: courseItemId },
+    select: { videoLessonId: true, courseId: true, itemType: true },
+  });
+
+  if (!item || item.itemType !== "VIDEO" || !item.videoLessonId) {
+    return { error: "Not a video lesson item." };
+  }
+
+  await prisma.videoLesson.update({
+    where: { id: item.videoLessonId },
+    data: {
+      status: "processing",
+      muxAssetId: null,
+      muxPlaybackId: null,
+    },
+  });
+
+  const result = await createMuxDirectUpload(`course-item:${courseItemId}`);
+
+  if (!result.error) {
+    revalidatePath(`/admin/courses/${item.courseId}/builder`);
+  }
+
+  return result;
+}
+
+export async function getVideoLessonUploadStatus(courseItemId: string) {
+  await requireManageCourseItem(courseItemId);
+
+  const item = await prisma.courseItem.findUnique({
+    where: { id: courseItemId },
+    select: {
+      videoLesson: {
+        select: {
+          status: true,
+          muxPlaybackId: true,
+          muxAssetId: true,
+        },
+      },
+    },
+  });
+
+  return {
+    status: item?.videoLesson?.status ?? "pending",
+    muxPlaybackId: item?.videoLesson?.muxPlaybackId ?? null,
+    muxAssetId: item?.videoLesson?.muxAssetId ?? null,
+  };
 }
 
 export async function uploadManualPdf(formData: FormData) {

@@ -80,14 +80,6 @@ export async function getGradingInbox() {
   return tasks;
 }
 
-export async function getUnreadNotificationCount() {
-  const session = await auth();
-  if (!session?.user?.id) return 0;
-  return prisma.notification.count({
-    where: { userId: session.user.id, readAt: null },
-  });
-}
-
 export async function getAttemptForGrading(attemptId: string) {
   const session = await auth();
   if (!session?.user?.id) return null;
@@ -310,13 +302,4 @@ export async function submitManualGrade(
   }));
 
   return saveAttemptGrades(attemptId, grades);
-}
-
-export async function markNotificationRead(notificationId: string) {
-  const session = await auth();
-  if (!session?.user?.id) return;
-  await prisma.notification.updateMany({
-    where: { id: notificationId, userId: session.user.id },
-    data: { readAt: new Date() },
-  });
 }

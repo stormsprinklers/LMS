@@ -1,20 +1,34 @@
 import { PageHeader } from "@/components/ui/PageHeader";
 import { AdminArchivedLink } from "@/components/admin/AdminArchivedLink";
-import { AdminListCard } from "@/components/admin/AdminListCard";
 import { requireAdmin } from "@/lib/auth-utils";
 import { listInvites, listUsers } from "@/lib/actions/invites";
+import { isPrismaMissingColumn } from "@/lib/db/prisma-errors";
 import type { UserRole } from "@prisma/client";
 import { InviteForm } from "./InviteForm";
 import { OpenSignupLinkForm } from "./OpenSignupLinkForm";
 import { OpenSignupLinksList } from "./OpenSignupLinksList";
+import { PendingMigrationBanner } from "./PendingMigrationBanner";
 import { UserRoleSelect } from "./UserRoleSelect";
 
 export const metadata = { title: "Admin — Users" };
 
 export default async function AdminUsersPage() {
   const session = await requireAdmin();
-  const [users, invites] = await Promise.all([listUsers(), listInvites()]);
+  const users = await listUsers();
   const activeUsers = users.filter((u) => !u.archived);
+
+  let invites: Awaited<ReturnType<typeof listInvites>> = [];
+  let invitesSchemaReady = true;
+
+  try {
+    invites = await listInvites();
+  } catch (error) {
+    if (isPrismaMissingColumn(error, "Invite.openSignup")) {
+      invitesSchemaReady = false;
+    } else {
+      throw error;
+    }
+  }
 
   const emailInvites = invites.filter((i) => !i.openSignup);
   const openLinks = invites.filter((i) => i.openSignup);
@@ -26,17 +40,26 @@ export default async function AdminUsersPage() {
         description="Invite by email or share an open signup link for self-registration."
         action={<AdminArchivedLink />}
       />
-      <div className="space-y-6">
-        <OpenSignupLinkForm />
-        <div>
-          <h3 className="mb-2 font-medium text-storm-navy">Email invite</h3>
-          <p className="mb-3 text-sm text-storm-navy/60">
-            One-time link for a specific email address.
-          </p>
-          <InviteForm />
+      {!invitesSchemaReady && (
+        <div className="mb-6">
+          <PendingMigrationBanner />
         </div>
-      </div>
-      <OpenSignupLinksList links={openLinks} />
+      )}
+      {invitesSchemaReady && (
+        <>
+          <div className="space-y-6">
+            <OpenSignupLinkForm />
+            <div>
+              <h3 className="mb-2 font-medium text-storm-navy">Email invite</h3>
+              <p className="mb-3 text-sm text-storm-navy/60">
+                One-time link for a specific email address.
+              </p>
+              <InviteForm />
+            </div>
+          </div>
+          <OpenSignupLinksList links={openLinks} />
+        </>
+      )}
       <section className="mt-8">
         <h2 className="font-title text-lg font-bold text-storm-navy">Users</h2>
         <ul className="mt-3 space-y-3">
@@ -67,22 +90,24 @@ export default async function AdminUsersPage() {
           )}
         </ul>
       </section>
-      <section className="mt-8">
-        <h2 className="font-title text-lg font-bold text-storm-navy">
-          Pending email invites
-        </h2>
-        <ul className="mt-3 space-y-2">
-          {emailInvites
-            .filter((i) => !i.usedAt)
-            .map((i) => (
-              <li key={i.id} className="rounded-lg border bg-white px-4 py-2 text-sm">
-                {i.email} · expires {i.expiresAt.toLocaleDateString()}
-                <br />
-                <code className="text-xs text-storm-medium-blue">/invite/{i.token}</code>
-              </li>
-            ))}
-        </ul>
-      </section>
+      {invitesSchemaReady && (
+        <section className="mt-8">
+          <h2 className="font-title text-lg font-bold text-storm-navy">
+            Pending email invites
+          </h2>
+          <ul className="mt-3 space-y-2">
+            {emailInvites
+              .filter((i) => !i.usedAt)
+              .map((i) => (
+                <li key={i.id} className="rounded-lg border bg-white px-4 py-2 text-sm">
+                  {i.email} · expires {i.expiresAt.toLocaleDateString()}
+                  <br />
+                  <code className="text-xs text-storm-medium-blue">/invite/{i.token}</code>
+                </li>
+              ))}
+          </ul>
+        </section>
+      )}
     </>
   );
 }

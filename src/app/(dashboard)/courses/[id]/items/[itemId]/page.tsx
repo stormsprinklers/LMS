@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import { requireUser } from "@/lib/auth-utils";
 import { prisma } from "@/lib/db";
 import { markCourseItemViewed } from "@/lib/courses/completion";
+import { getCourseProgressMap } from "@/lib/courses/completion";
+import { CourseItemVideoView } from "./CourseItemVideoView";
 import { LessonItemView } from "./LessonItemView";
 
 export default async function CourseItemPage({
@@ -21,12 +23,16 @@ export default async function CourseItemPage({
     },
     include: {
       lessonContent: true,
+      videoLesson: true,
       scenario: true,
       course: { select: { slug: true, title: true } },
     },
   });
 
   if (!item) notFound();
+
+  const progressMap = await getCourseProgressMap(session.user.id, item.courseId);
+  const progress = progressMap.get(item.id);
 
   if (item.itemType === "LESSON" && item.completionRule === "viewed") {
     await markCourseItemViewed(session.user.id, itemId);
@@ -45,6 +51,16 @@ export default async function CourseItemPage({
         ← {item.course.title}
       </Link>
       <h1 className="font-title mt-4 text-2xl font-bold text-storm-navy">{item.title}</h1>
+
+      {item.itemType === "VIDEO" && (
+        <CourseItemVideoView
+          courseItemId={item.id}
+          playbackId={item.videoLesson?.muxPlaybackId ?? null}
+          videoUrl={item.videoLesson?.videoUrl ?? null}
+          initialSeconds={progress?.watchedSeconds ?? 0}
+          estimatedMinutes={item.estimatedMinutes}
+        />
+      )}
 
       {item.itemType === "LESSON" && item.lessonContent && (
         <LessonItemView

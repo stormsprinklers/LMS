@@ -1,5 +1,5 @@
 import { auth } from "@/auth";
-import { getUnreadNotificationCount } from "@/lib/actions/grading";
+import { getUnreadNotificationCount } from "@/lib/actions/notifications";
 import { MobileShell } from "./MobileShell";
 
 export async function AppShell({ children }: { children: React.ReactNode }) {

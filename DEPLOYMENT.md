@@ -16,7 +16,16 @@ The error `404: NOT_FOUND` with an ID like `sfo1::...` is **Vercel’s platform*
 
    Enable each for **Production**, **Preview**, and **Development** so they are available at **build time**.
 
-   **Database migrations:** Vercel builds **do not** run `prisma migrate deploy` (avoids Neon advisory-lock timeouts). Your existing Neon database is unchanged. When you add new files under `prisma/migrations/`, apply them once from your computer:
+   **If Admin → Users shows “Database update required”** or logs `Invite.openSignup does not exist`, production is behind the Prisma schema. From your machine:
+
+   ```bash
+   # .env.local with the same DATABASE_URL as Vercel (Neon)
+   npm run db:migrate:deploy
+   ```
+
+   Or run `scripts/fix-production-schema.sql` in the Neon SQL Editor, then mark migrations applied with `npx prisma migrate resolve --applied <migration_name>` (see comments in that file).
+
+   **Database migrations:** Vercel builds **do not** run `prisma migrate deploy` (avoids Neon advisory-lock timeouts). Your existing Neon database is unchanged until you run the command above. When you add new files under `prisma/migrations/`, apply them once from your computer:
 
    ```bash
    # .env.local with the same DATABASE_URL as production

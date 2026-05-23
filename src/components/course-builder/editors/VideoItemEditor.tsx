@@ -4,6 +4,7 @@ import { updateCourseItem, updateVideoLessonContent } from "@/lib/actions/course
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { ContentStatus } from "@prisma/client";
+import { VideoFileUpload } from "./VideoFileUpload";
 
 const inputClass =
   "mt-1 w-full min-h-10 rounded-lg border border-storm-light-blue/60 px-3 py-2 text-sm";
@@ -21,6 +22,7 @@ type Item = {
     transcript: string | null;
     requiredWatchPercent: number;
     completionRule: string;
+    status: string;
   } | null;
   legacyLesson: {
     videoAsset: { muxPlaybackId: string | null } | null;
@@ -30,10 +32,11 @@ type Item = {
 export function VideoItemEditor({ item }: { item: Item }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const playbackId =
     item.videoLesson?.muxPlaybackId ??
     item.legacyLesson?.videoAsset?.muxPlaybackId ??
-    "";
+    null;
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -59,22 +62,17 @@ export function VideoItemEditor({ item }: { item: Item }) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
+      <VideoFileUpload
+        courseItemId={item.id}
+        playbackId={playbackId}
+        uploadStatus={item.videoLesson?.status ?? null}
+      />
+
       <label className="block text-sm">
         Title
         <input name="title" defaultValue={item.title} required className={inputClass} />
       </label>
-      <label className="block text-sm">
-        Mux playback ID
-        <input name="muxPlaybackId" defaultValue={playbackId} className={inputClass} />
-      </label>
-      <label className="block text-sm">
-        Video URL (optional external)
-        <input
-          name="videoUrl"
-          defaultValue={item.videoLesson?.videoUrl ?? ""}
-          className={inputClass}
-        />
-      </label>
+
       <label className="block text-sm">
         Transcript
         <textarea
@@ -128,12 +126,44 @@ export function VideoItemEditor({ item }: { item: Item }) {
           <option value="PUBLISHED">Published</option>
         </select>
       </label>
+
+      <button
+        type="button"
+        onClick={() => setShowAdvanced((v) => !v)}
+        className="text-sm text-storm-medium-blue hover:underline"
+      >
+        {showAdvanced ? "Hide" : "Show"} advanced options
+      </button>
+
+      {showAdvanced && (
+        <div className="space-y-3 rounded-lg border border-dashed border-storm-light-blue/60 p-3">
+          <label className="block text-sm">
+            Mux playback ID (manual)
+            <input
+              name="muxPlaybackId"
+              defaultValue={playbackId ?? ""}
+              className={inputClass}
+              placeholder="Only if not using upload above"
+            />
+          </label>
+          <label className="block text-sm">
+            External video URL (optional)
+            <input
+              name="videoUrl"
+              defaultValue={item.videoLesson?.videoUrl ?? ""}
+              className={inputClass}
+              placeholder="https://… direct MP4 or hosted link"
+            />
+          </label>
+        </div>
+      )}
+
       <button
         type="submit"
         disabled={busy}
         className="min-h-10 w-full rounded-lg bg-storm-medium-blue text-sm font-semibold text-white"
       >
-        {busy ? "Saving…" : "Save video"}
+        {busy ? "Saving…" : "Save video settings"}
       </button>
     </form>
   );
