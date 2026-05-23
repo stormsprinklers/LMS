@@ -98,9 +98,15 @@ export async function getCourseBySlugAdmin(slug: string) {
   });
 }
 
-export async function listCoursesAdmin(archived = false) {
+export async function listCoursesAdmin(
+  archived = false,
+  createdById?: string,
+) {
   return prisma.course.findMany({
-    where: { archived },
+    where: {
+      archived,
+      ...(createdById ? { createdById } : {}),
+    },
     orderBy: archived ? { archivedAt: "desc" } : { title: "asc" },
     include: {
       modules: { include: { _count: { select: { lessons: true, courseItems: true } } } },

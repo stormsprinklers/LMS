@@ -32,7 +32,7 @@ export async function getGradingInbox() {
   if (!user) return [];
 
   const courseIds =
-    user.role === "ADMIN"
+    user.role === "ADMIN" || user.role === "MANAGER"
       ? undefined
       : (
           await prisma.courseAdmin.findMany({
@@ -47,17 +47,23 @@ export async function getGradingInbox() {
       archived: false,
       ...(user.role === "ADMIN"
         ? {}
-        : {
-            OR: [
-              { courseId: { in: courseIds } },
-              { assignedToUserId: userId },
-              {
-                attempt: {
-                  exam: { graders: { some: { userId } } },
-                },
+        : user.role === "MANAGER"
+          ? {
+              attempt: {
+                exam: { createdById: userId },
               },
-            ],
-          }),
+            }
+          : {
+              OR: [
+                { courseId: { in: courseIds } },
+                { assignedToUserId: userId },
+                {
+                  attempt: {
+                    exam: { graders: { some: { userId } } },
+                  },
+                },
+              ],
+            }),
     },
     include: {
       attempt: {

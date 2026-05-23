@@ -1,7 +1,12 @@
 "use server";
 
 import { prisma } from "@/lib/db";
-import { requireAdmin } from "@/lib/auth-utils";
+import { canManageCourse, managerOwnsContentFilter } from "@/lib/auth/permissions";
+import {
+  requireAdmin,
+  requireManageExam,
+  requireStaff,
+} from "@/lib/auth-utils";
 import { revalidatePath } from "next/cache";
 import type { GradeVisibility, QuestionType } from "@prisma/client";
 import { Prisma } from "@prisma/client";
@@ -24,7 +29,15 @@ export async function createExam(data: {
   gradeVisibility: GradeVisibility;
   userIds?: string[];
 }) {
-  const session = await requireAdmin();
+  const session = await requireStaff();
+  const role = (session.user as { role?: string }).role;
+  if (
+    data.courseId &&
+    !(await canManageCourse(session.user.id, role, data.courseId))
+  ) {
+    throw new Error("You can only link exams to courses you created.");
+  }
+
   const exam = await prisma.exam.create({
     data: {
       title: data.title,
@@ -62,7 +75,14 @@ export async function updateExam(
     published?: boolean;
   },
 ) {
-  await requireAdmin();
+  const session = await requireManageExam(examId);
+  const role = (session.user as { role?: string }).role;
+  if (
+    data.courseId &&
+    !(await canManageCourse(session.user.id, role, data.courseId))
+  ) {
+    throw new Error("You can only link exams to courses you created.");
+  }
   const { attemptsAllowed, ...rest } = data;
   await prisma.exam.update({
     where: { id: examId },
@@ -123,7 +143,7 @@ export async function deleteExam(examId: string) {
 }
 
 export async function assignUsersToExam(examId: string, userIds: string[]) {
-  await requireAdmin();
+  await requireManageExam(examId);
   for (const userId of userIds) {
     await prisma.examAssignment.upsert({
       where: { examId_userId: { examId, userId } },
@@ -135,7 +155,7 @@ export async function assignUsersToExam(examId: string, userIds: string[]) {
 }
 
 export async function removeExamAssignment(examId: string, userId: string) {
-  await requireAdmin();
+  await requireManageExam(examId);
   await prisma.examAssignment.delete({
     where: { examId_userId: { examId, userId } },
   });
@@ -164,7 +184,7 @@ export async function removeCourseAdmin(courseId: string, userId: string) {
 }
 
 export async function assignExamGrader(examId: string, userId: string) {
-  await requireAdmin();
+  await requireManageExam(examId);
   await prisma.examGrader.upsert({
     where: { examId_userId: { examId, userId } },
     update: {},
@@ -174,7 +194,7 @@ export async function assignExamGrader(examId: string, userId: string) {
 }
 
 export async function addQuestion(examId: string, input: QuestionInput) {
-  await requireAdmin();
+  await requireManageExam(examId);
   await validateQuestionInput(input);
   const question = await prisma.question.create({
     data: {
@@ -209,7 +229,7 @@ export async function updateQuestion(
   questionId: string,
   input: QuestionInput & { options?: QuestionOptionUpdate[] },
 ) {
-  await requireAdmin();
+  await requireManageExam(examId);
   await validateQuestionInput(input);
 
   const existing = await prisma.question.findFirst({
@@ -276,13 +296,13 @@ export async function updateQuestion(
 }
 
 export async function deleteQuestion(examId: string, questionId: string) {
-  await requireAdmin();
+  await requireManageExam(examId);
   await prisma.question.delete({ where: { id: questionId } });
   revalidatePath(`/admin/exams/${examId}`);
 }
 
 export async function importQuestionsFromCsv(examId: string, csvText: string) {
-  await requireAdmin();
+  await requireManageExam(examId);
   const { questions, errors } = parseQuestionsCsv(csvText);
   if (errors.length) return { error: errors.join("\n") };
   const baseOrder = await prisma.question.count({ where: { examId } });
@@ -294,7 +314,7 @@ export async function importQuestionsFromCsv(examId: string, csvText: string) {
 }
 
 export async function publishExamGrades(examId: string) {
-  await requireAdmin();
+  await requireManageExam(examId);
   const exam = await prisma.exam.update({
     where: { id: examId },
     data: { gradesPublishedAt: new Date() },
@@ -357,10 +377,12 @@ async function validateQuestionInput(input: QuestionInput) {
 }
 
 export async function listExamsAdmin() {
-  await requireAdmin();
+  const session = await requireStaff();
+  const role = (session.user as { role?: string }).role;
+  const own = managerOwnsContentFilter(session.user.id, role);
   const [active, archived] = await Promise.all([
     prisma.exam.findMany({
-      where: { archived: false },
+      where: { archived: false, ...own },
       orderBy: { updatedAt: "desc" },
       include: {
         course: { select: { id: true, slug: true, title: true } },
@@ -369,7 +391,7 @@ export async function listExamsAdmin() {
       },
     }),
     prisma.exam.findMany({
-      where: { archived: true },
+      where: { archived: true, ...own },
       orderBy: { archivedAt: "desc" },
       include: {
         course: { select: { id: true, slug: true, title: true } },
@@ -382,7 +404,7 @@ export async function listExamsAdmin() {
 }
 
 export async function getExamAdmin(examId: string) {
-  await requireAdmin();
+  await requireManageExam(examId);
   return prisma.exam.findUnique({
     where: { id: examId },
     include: {
@@ -400,7 +422,7 @@ export async function getExamAdmin(examId: string) {
 }
 
 export async function listUsersForAssignment() {
-  await requireAdmin();
+  await requireStaff();
   return prisma.user.findMany({
     where: { status: "ACTIVE" },
     orderBy: { name: "asc" },
@@ -409,8 +431,11 @@ export async function listUsersForAssignment() {
 }
 
 export async function listCoursesForExam() {
-  await requireAdmin();
+  const session = await requireStaff();
+  const role = (session.user as { role?: string }).role;
+  const own = managerOwnsContentFilter(session.user.id, role);
   return prisma.course.findMany({
+    where: { archived: false, ...own },
     orderBy: { title: "asc" },
     select: { id: true, slug: true, title: true },
   });

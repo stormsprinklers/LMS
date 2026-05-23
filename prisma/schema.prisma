@@ -9,6 +9,7 @@ datasource db {
 
 enum UserRole {
   EMPLOYEE
+  MANAGER
   ADMIN
   COURSE_ADMIN
 }
@@ -207,8 +208,12 @@ model VerificationToken {
 
 model Invite {
   id          String    @id @default(cuid())
-  email       String
+  email       String?
   token       String    @unique
+  openSignup  Boolean   @default(false)
+  label       String?
+  maxUses     Int?
+  useCount    Int       @default(0)
   expiresAt   DateTime
   usedAt      DateTime?
   createdAt   DateTime  @default(now())

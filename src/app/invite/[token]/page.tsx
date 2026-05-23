@@ -1,5 +1,6 @@
 import { LogoMark } from "@/components/brand/Logo";
 import { prisma } from "@/lib/db";
+import { isInviteActive } from "@/lib/invites/validate";
 import { notFound } from "next/navigation";
 import { AcceptInviteForm } from "./AcceptInviteForm";
 
@@ -13,9 +14,11 @@ export default async function InvitePage({
   const { token } = await params;
   const invite = await prisma.invite.findUnique({ where: { token } });
 
-  if (!invite || invite.usedAt || invite.expiresAt < new Date()) {
+  if (!invite || !isInviteActive(invite)) {
     notFound();
   }
+
+  const openSignup = invite.openSignup;
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-storm-light-grey px-4">
@@ -25,10 +28,21 @@ export default async function InvitePage({
           Join Storm Sprinklers LMS
         </h1>
         <p className="mt-2 text-center text-sm text-storm-navy/60">
-          Set up your account for {invite.email}
+          {openSignup
+            ? "Create your account with your work email and name."
+            : `Set up your account for ${invite.email}`}
         </p>
+        {invite.label && openSignup && (
+          <p className="mt-1 text-center text-xs text-storm-navy/50">
+            {invite.label}
+          </p>
+        )}
         <div className="mt-8">
-          <AcceptInviteForm token={token} />
+          <AcceptInviteForm
+            token={token}
+            openSignup={openSignup}
+            prefillEmail={invite.email}
+          />
         </div>
       </div>
     </div>

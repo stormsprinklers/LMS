@@ -40,6 +40,7 @@ export const adminSubNavItems = [
   { href: "/admin", label: "Overview" },
   { href: "/admin/courses", label: "Courses" },
   { href: "/admin/exams", label: "Exams" },
+  { href: "/admin/grades", label: "Grades" },
   { href: "/admin/grading", label: "Grading" },
   { href: "/admin/skill-checks", label: "Skill Checks" },
   { href: "/admin/users", label: "Users" },
@@ -48,8 +49,14 @@ export const adminSubNavItems = [
   { href: "/admin/archived", label: "Archived" },
 ] as const;
 
+const managerSubNavItems = [
+  { href: "/admin/courses", label: "Courses" },
+  { href: "/admin/exams", label: "Exams" },
+  { href: "/admin/grading", label: "Grading" },
+] as const;
+
 export function getMainNavItems(role?: string): NavItem[] {
-  if (role === "ADMIN") {
+  if (role === "ADMIN" || role === "MANAGER") {
     return [...learnerNavItems, adminNavItem];
   }
   if (role === "COURSE_ADMIN") {
@@ -60,6 +67,7 @@ export function getMainNavItems(role?: string): NavItem[] {
 
 export function getAdminSubNav(role?: string) {
   if (role === "ADMIN") return [...adminSubNavItems];
+  if (role === "MANAGER") return [...managerSubNavItems];
   if (role === "COURSE_ADMIN") {
     return adminSubNavItems.filter((n) => n.href === "/admin/grading");
   }

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { updateCourseItem } from "@/lib/actions/course-builder";
+import { updateExam } from "@/lib/actions/exams-admin";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { ContentStatus } from "@prisma/client";
@@ -41,6 +42,13 @@ export function ExamItemEditor({ item }: { item: Item }) {
       estimatedMinutes: Number(fd.get("estimatedMinutes")) || undefined,
       status: String(fd.get("status")) as ContentStatus,
     });
+    if (examId) {
+      await updateExam(examId, {
+        attemptsAllowed: Number(fd.get("attemptsAllowed")),
+        passingScore: Number(fd.get("passingScore")),
+        timeLimitMinutes: Number(fd.get("timeLimitMinutes")),
+      });
+    }
     setBusy(false);
     router.refresh();
   }
@@ -52,19 +60,58 @@ export function ExamItemEditor({ item }: { item: Item }) {
         <input name="title" defaultValue={item.title} required className={inputClass} />
       </label>
       {examId && (
-        <div className="rounded-lg bg-storm-light-grey/40 p-3 text-sm">
-          <p className="font-medium text-storm-navy">
-            {item.exam?.title ?? "Linked exam"}
-          </p>
-          <p className="mt-1 text-storm-navy/60">
-            Pass {item.exam?.passingScore ?? 80}% · {item.exam?.timeLimitMinutes ?? 30} min ·{" "}
+        <div className="space-y-3 rounded-lg border border-storm-light-blue/40 bg-storm-light-grey/30 p-3">
+          <p className="text-sm font-medium text-storm-navy">Exam settings</p>
+          <p className="text-xs text-storm-navy/60">
+            {item.exam?.title ?? "Linked exam"} ·{" "}
             {item.exam?._count?.questions ?? 0} questions
+          </p>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <label className="block text-sm">
+              Pass %
+              <input
+                name="passingScore"
+                type="number"
+                min={0}
+                max={100}
+                defaultValue={item.exam?.passingScore ?? 80}
+                className={inputClass}
+              />
+            </label>
+            <label className="block text-sm">
+              Time limit (min)
+              <input
+                name="timeLimitMinutes"
+                type="number"
+                min={1}
+                defaultValue={item.exam?.timeLimitMinutes ?? 30}
+                className={inputClass}
+              />
+            </label>
+            <label className="block text-sm">
+              Submissions allowed
+              <input
+                name="attemptsAllowed"
+                type="number"
+                min={1}
+                required
+                defaultValue={
+                  item.exam?.attemptsAllowed && item.exam.attemptsAllowed >= 1
+                    ? item.exam.attemptsAllowed
+                    : 3
+                }
+                className={inputClass}
+              />
+            </label>
+          </div>
+          <p className="text-xs text-storm-navy/60">
+            How many times each learner may submit this exam for a final score.
           </p>
           <Link
             href={`/admin/exams/${examId}`}
-            className="mt-2 inline-block font-medium text-storm-medium-blue no-underline hover:underline"
+            className="inline-block text-sm font-medium text-storm-medium-blue no-underline hover:underline"
           >
-            Open full exam builder →
+            Open full exam builder (questions, assignments) →
           </Link>
         </div>
       )}

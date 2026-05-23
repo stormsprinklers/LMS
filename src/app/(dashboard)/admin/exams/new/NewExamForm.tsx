@@ -57,8 +57,11 @@ export function NewExamForm({
           <input name="timeLimitMinutes" type="number" defaultValue={30} className={inputClass} />
         </label>
         <label className="text-sm">
-          <span className="mb-1 block text-storm-navy/70">Attempts</span>
+          <span className="mb-1 block text-storm-navy/70">Submissions allowed</span>
           <input name="attemptsAllowed" type="number" min={1} defaultValue={3} required className={inputClass} />
+          <span className="mt-1 block text-xs text-storm-navy/50">
+            Final submissions per learner (saved progress does not count).
+          </span>
         </label>
       </div>
       <label className="flex min-h-11 items-center gap-3 text-sm">

@@ -53,6 +53,7 @@ export function AdminEntityActions({
   name,
   archived = false,
   compact = false,
+  allowDestructive = true,
 }: {
   type: AdminEntityType;
   id: string;
@@ -60,7 +61,10 @@ export function AdminEntityActions({
   archived?: boolean;
   /** Smaller buttons for list rows */
   compact?: boolean;
+  /** Managers cannot archive or delete */
+  allowDestructive?: boolean;
 }) {
+  if (!allowDestructive) return null;
   const router = useRouter();
   const [confirm, setConfirm] = useState<"archive" | "delete" | null>(null);
   const [busy, setBusy] = useState(false);

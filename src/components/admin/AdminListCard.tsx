@@ -11,6 +11,7 @@ export function AdminListCard({
   id,
   archived = false,
   as: Tag = "li",
+  allowDestructive = true,
 }: {
   href?: string;
   title: string;
@@ -19,6 +20,7 @@ export function AdminListCard({
   id: string;
   archived?: boolean;
   as?: "li" | "div";
+  allowDestructive?: boolean;
 }) {
   return (
     <Tag className="rounded-xl border border-storm-light-blue/60 bg-white p-4 block">
@@ -41,7 +43,14 @@ export function AdminListCard({
             </span>
           )}
         </div>
-        <AdminEntityActions type={type} id={id} name={title} archived={archived} compact />
+        <AdminEntityActions
+          type={type}
+          id={id}
+          name={title}
+          archived={archived}
+          compact
+          allowDestructive={allowDestructive}
+        />
       </div>
     </Tag>
   );

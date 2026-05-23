@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/db";
-import { requireAdmin } from "@/lib/auth-utils";
+import { requireAdmin, requireManageCourse, requireManageCourseItem, requireManageModule, requireStaff } from "@/lib/auth-utils";
 import { revalidatePath } from "next/cache";
 import { validateCourseForPublish } from "@/lib/courses/validate-publish";
 import type {
@@ -40,7 +40,7 @@ export async function createCourseDraft(data: {
   title: string;
   slug?: string;
 }) {
-  const session = await requireAdmin();
+  const session = await requireStaff();
   const slug =
     data.slug?.trim() ||
     data.title
@@ -94,7 +94,7 @@ export async function updateCourseInfo(
     internalNotes?: string;
   },
 ) {
-  await requireAdmin();
+  await requireManageCourse(courseId);
   const course = await prisma.course.update({
     where: { id: courseId },
     data: {
@@ -133,7 +133,7 @@ export async function updateCourseSettings(
     notifyReminder?: boolean;
   },
 ) {
-  await requireAdmin();
+  await requireManageCourse(courseId);
   await prisma.courseSettings.upsert({
     where: { courseId },
     create: { courseId, ...data },
@@ -145,7 +145,7 @@ export async function updateCourseSettings(
 }
 
 export async function createModule(courseId: string, title: string) {
-  await requireAdmin();
+  await requireManageCourse(courseId);
   const count = await prisma.module.count({ where: { courseId } });
   const mod = await prisma.module.create({
     data: {
@@ -172,7 +172,7 @@ export async function updateModule(
     status: ContentStatus;
   },
 ) {
-  await requireAdmin();
+  await requireManageModule(moduleId);
   const mod = await prisma.module.update({
     where: { id: moduleId },
     data,
@@ -197,7 +197,7 @@ export async function reorderCurriculum(
   moduleOrder: string[],
   itemOrders: Record<string, string[]>,
 ) {
-  await requireAdmin();
+  await requireManageCourse(courseId);
   for (let i = 0; i < moduleOrder.length; i++) {
     await prisma.module.update({
       where: { id: moduleOrder[i] },
@@ -223,7 +223,7 @@ export async function createCourseItem(
   title: string,
   track?: CourseItemTrack,
 ) {
-  const session = await requireAdmin();
+  const session = await requireManageModule(moduleId);
   const mod = await prisma.module.findUnique({
     where: { id: moduleId },
     select: { courseId: true },
@@ -323,7 +323,7 @@ export async function updateCourseItem(
     track?: CourseItemTrack;
   },
 ) {
-  await requireAdmin();
+  await requireManageCourseItem(itemId);
   const item = await prisma.courseItem.update({
     where: { id: itemId },
     data,
@@ -342,7 +342,7 @@ export async function updateLessonContent(
     minimumTimeSeconds?: number;
   },
 ) {
-  await requireAdmin();
+  await requireManageCourseItem(itemId);
   const item = await prisma.courseItem.findUnique({
     where: { id: itemId },
     include: { lessonContent: true },
@@ -374,7 +374,7 @@ export async function updateVideoLessonContent(
     estimatedMinutes?: number;
   },
 ) {
-  await requireAdmin();
+  await requireManageCourseItem(itemId);
   const item = await prisma.courseItem.findUnique({
     where: { id: itemId },
     include: { videoLesson: true, legacyLesson: { include: { videoAsset: true } } },
@@ -421,7 +421,7 @@ export async function updateSkillCheck(
     steps?: { id?: string; text: string; isRequired: boolean; points: number }[];
   },
 ) {
-  await requireAdmin();
+  await requireManageCourseItem(itemId);
   const item = await prisma.courseItem.findUnique({
     where: { id: itemId },
     select: { skillCheckId: true, courseId: true },
@@ -466,7 +466,7 @@ export async function updateScenario(
     category?: string;
   },
 ) {
-  await requireAdmin();
+  await requireManageCourseItem(itemId);
   const item = await prisma.courseItem.findUnique({
     where: { id: itemId },
     select: { scenarioId: true, courseId: true },
@@ -483,7 +483,7 @@ export async function updateScenario(
 }
 
 export async function duplicateCourseItem(itemId: string) {
-  await requireAdmin();
+  await requireManageCourseItem(itemId);
   const item = await prisma.courseItem.findUnique({
     where: { id: itemId },
     include: {
@@ -606,7 +606,7 @@ export async function assignCourseToUsers(
   userIds: string[],
   dueDays?: number,
 ) {
-  const session = await requireAdmin();
+  const session = await requireManageCourse(courseId);
   for (const userId of userIds) {
     await prisma.enrollment.upsert({
       where: { userId_courseId: { userId, courseId } },
@@ -645,7 +645,7 @@ export async function assignCourseToUsers(
 }
 
 export async function assignCourseToRole(courseId: string, jobRole: string) {
-  await requireAdmin();
+  await requireManageCourse(courseId);
   const users = await prisma.user.findMany({
     where: { jobRole, status: "ACTIVE", archived: false },
   });
@@ -656,7 +656,7 @@ export async function assignCourseToRole(courseId: string, jobRole: string) {
 }
 
 export async function assignCourseToAll(courseId: string) {
-  await requireAdmin();
+  await requireManageCourse(courseId);
   const users = await prisma.user.findMany({
     where: { status: "ACTIVE", archived: false, role: "EMPLOYEE" },
   });
@@ -667,7 +667,7 @@ export async function assignCourseToAll(courseId: string) {
 }
 
 export async function publishCourse(courseId: string) {
-  await requireAdmin();
+  await requireManageCourse(courseId);
   const validation = await validateCourseForPublish(courseId);
   if (!validation.ok) {
     return { error: "Fix validation errors before publishing.", issues: validation.issues };
@@ -694,7 +694,7 @@ export async function publishCourse(courseId: string) {
 }
 
 export async function saveCourseAsDraft(courseId: string) {
-  await requireAdmin();
+  await requireManageCourse(courseId);
   await prisma.course.update({
     where: { id: courseId },
     data: { status: "DRAFT", published: false },
@@ -704,7 +704,7 @@ export async function saveCourseAsDraft(courseId: string) {
 }
 
 export async function getCourseValidation(courseId: string) {
-  await requireAdmin();
+  await requireManageCourse(courseId);
   return validateCourseForPublish(courseId);
 }
 
@@ -715,10 +715,11 @@ export async function markSkillCheckComplete(
   score?: number,
   notes?: string,
 ) {
-  const session = await requireAdmin();
   const item = await prisma.courseItem.findFirst({
     where: { skillCheckId },
   });
+  if (!item) return { error: "Not found" };
+  const session = await requireManageCourse(item.courseId);
 
   await prisma.skillCheckCompletion.upsert({
     where: { skillCheckId_userId: { skillCheckId, userId } },

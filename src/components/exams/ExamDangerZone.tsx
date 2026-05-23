@@ -10,13 +10,16 @@ export function ExamDangerZone({
   archived,
   hasLessonLink,
   attemptCount,
+  visible = true,
 }: {
   examId: string;
   examTitle: string;
   archived: boolean;
   hasLessonLink: boolean;
   attemptCount: number;
+  visible?: boolean;
 }) {
+  if (!visible) return null;
   const router = useRouter();
   const [confirm, setConfirm] = useState<"archive" | "delete" | null>(null);
   const [busy, setBusy] = useState(false);

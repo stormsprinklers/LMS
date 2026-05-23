@@ -1,34 +1,66 @@
 import { PageHeader } from "@/components/ui/PageHeader";
 import { AdminArchivedLink } from "@/components/admin/AdminArchivedLink";
 import { AdminListCard } from "@/components/admin/AdminListCard";
+import { requireAdmin } from "@/lib/auth-utils";
 import { listInvites, listUsers } from "@/lib/actions/invites";
+import type { UserRole } from "@prisma/client";
 import { InviteForm } from "./InviteForm";
+import { OpenSignupLinkForm } from "./OpenSignupLinkForm";
+import { OpenSignupLinksList } from "./OpenSignupLinksList";
+import { UserRoleSelect } from "./UserRoleSelect";
 
 export const metadata = { title: "Admin — Users" };
 
 export default async function AdminUsersPage() {
+  const session = await requireAdmin();
   const [users, invites] = await Promise.all([listUsers(), listInvites()]);
   const activeUsers = users.filter((u) => !u.archived);
+
+  const emailInvites = invites.filter((i) => !i.openSignup);
+  const openLinks = invites.filter((i) => i.openSignup);
 
   return (
     <>
       <PageHeader
         title="Users & invites"
-        description="Invite employees by email. Archive users to disable access without deleting history."
+        description="Invite by email or share an open signup link for self-registration."
         action={<AdminArchivedLink />}
       />
-      <InviteForm />
+      <div className="space-y-6">
+        <OpenSignupLinkForm />
+        <div>
+          <h3 className="mb-2 font-medium text-storm-navy">Email invite</h3>
+          <p className="mb-3 text-sm text-storm-navy/60">
+            One-time link for a specific email address.
+          </p>
+          <InviteForm />
+        </div>
+      </div>
+      <OpenSignupLinksList links={openLinks} />
       <section className="mt-8">
         <h2 className="font-title text-lg font-bold text-storm-navy">Users</h2>
         <ul className="mt-3 space-y-3">
           {activeUsers.map((u) => (
-            <AdminListCard
+            <li
               key={u.id}
-              title={u.name ?? u.email}
-              subtitle={`${u.email} · ${u.role} · ${u.status}`}
-              type="user"
-              id={u.id}
-            />
+              className="rounded-xl border border-storm-light-blue/60 bg-white p-4"
+            >
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <p className="font-title font-bold text-storm-navy">
+                    {u.name ?? u.email}
+                  </p>
+                  <p className="mt-1 text-sm text-storm-navy/60">
+                    {u.email} · {u.status}
+                  </p>
+                </div>
+                <UserRoleSelect
+                  userId={u.id}
+                  currentRole={u.role as UserRole}
+                  isSelf={u.id === session.user.id}
+                />
+              </div>
+            </li>
           ))}
           {activeUsers.length === 0 && (
             <p className="text-sm text-storm-navy/60">No active users.</p>
@@ -36,9 +68,11 @@ export default async function AdminUsersPage() {
         </ul>
       </section>
       <section className="mt-8">
-        <h2 className="font-title text-lg font-bold text-storm-navy">Pending invites</h2>
+        <h2 className="font-title text-lg font-bold text-storm-navy">
+          Pending email invites
+        </h2>
         <ul className="mt-3 space-y-2">
-          {invites
+          {emailInvites
             .filter((i) => !i.usedAt)
             .map((i) => (
               <li key={i.id} className="rounded-lg border bg-white px-4 py-2 text-sm">

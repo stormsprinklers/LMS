@@ -1,20 +1,32 @@
 import { PageHeader } from "@/components/ui/PageHeader";
 import { AdminArchivedLink } from "@/components/admin/AdminArchivedLink";
 import { AdminListCard } from "@/components/admin/AdminListCard";
+import { isAdmin, isManager } from "@/lib/auth/permissions";
+import { requireStaff } from "@/lib/auth-utils";
 import { listCoursesAdmin } from "@/lib/repositories/courses";
 import Link from "next/link";
 
 export const metadata = { title: "Admin — Courses" };
 
 export default async function AdminCoursesPage() {
-  const courses = await listCoursesAdmin(false);
+  const session = await requireStaff();
+  const role = (session.user as { role?: string }).role;
+  const courses = await listCoursesAdmin(
+    false,
+    isManager(role) ? session.user.id : undefined,
+  );
+  const canDestruct = isAdmin(role);
 
   return (
     <>
       <PageHeader
         title="Courses"
-        description="Create and edit training courses."
-        action={<AdminArchivedLink />}
+        description={
+          isManager(role)
+            ? "Courses you created. You can edit and assign them, but not delete them."
+            : "Create and edit training courses."
+        }
+        action={canDestruct ? <AdminArchivedLink /> : undefined}
       />
       <Link
         href="/admin/courses/new"
@@ -31,6 +43,7 @@ export default async function AdminCoursesPage() {
             subtitle={`${c.category} · ${c.status}`}
             type="course"
             id={c.id}
+            allowDestructive={canDestruct}
           />
         ))}
         {courses.length === 0 && (

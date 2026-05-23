@@ -34,7 +34,13 @@ import { ItemTypeIcon } from "../ItemTypeIcon";
 import type { CourseItemTrack, CourseItemType } from "@prisma/client";
 import { GripVertical, Plus, ChevronDown, ChevronRight } from "lucide-react";
 
-export function CurriculumTab({ course }: { course: CourseBuilderCourse }) {
+export function CurriculumTab({
+  course,
+  allowDestructive = true,
+}: {
+  course: CourseBuilderCourse;
+  allowDestructive?: boolean;
+}) {
   const router = useRouter();
   const [expanded, setExpanded] = useState<Record<string, boolean>>(
     Object.fromEntries(course.modules.map((m) => [m.id, true])),
@@ -135,10 +141,15 @@ export function CurriculumTab({ course }: { course: CourseBuilderCourse }) {
                     await duplicateCourseItem(id);
                     router.refresh();
                   }}
-                  onArchive={async (id) => {
-                    await archiveCourseItem(id);
-                    router.refresh();
-                  }}
+                  onArchive={
+                    allowDestructive
+                      ? async (id) => {
+                          await archiveCourseItem(id);
+                          router.refresh();
+                        }
+                      : undefined
+                  }
+                  allowDestructive={allowDestructive}
                   selectedId={
                     selection?.kind === "item"
                       ? selection.itemId
@@ -182,6 +193,7 @@ function SortableModule({
   onItemDragEnd,
   onDuplicate,
   onArchive,
+  allowDestructive,
   selectedId,
 }: {
   mod: CourseBuilderCourse["modules"][0];
@@ -192,7 +204,8 @@ function SortableModule({
   onAddItem: () => void;
   onItemDragEnd: (e: DragEndEvent) => void;
   onDuplicate: (id: string) => void;
-  onArchive: (id: string) => void;
+  onArchive?: (id: string) => void;
+  allowDestructive: boolean;
   selectedId?: string;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
@@ -234,7 +247,8 @@ function SortableModule({
                     selected={selectedId === item.id}
                     onSelect={() => onSelectItem(item.id)}
                     onDuplicate={() => onDuplicate(item.id)}
-                    onArchive={() => onArchive(item.id)}
+                    onArchive={onArchive ? () => onArchive(item.id) : undefined}
+                    allowDestructive={allowDestructive}
                   />
                 ))}
               </ul>
@@ -259,12 +273,14 @@ function SortableItemRow({
   onSelect,
   onDuplicate,
   onArchive,
+  allowDestructive,
 }: {
   item: CourseBuilderItem;
   selected: boolean;
   onSelect: () => void;
   onDuplicate: () => void;
-  onArchive: () => void;
+  onArchive?: () => void;
+  allowDestructive: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: item.id });
@@ -298,9 +314,11 @@ function SortableItemRow({
       <button type="button" onClick={onDuplicate} className="text-xs text-storm-medium-blue">
         Dup
       </button>
-      <button type="button" onClick={onArchive} className="text-xs text-red-600">
-        Del
-      </button>
+      {allowDestructive && onArchive && (
+        <button type="button" onClick={onArchive} className="text-xs text-red-600">
+          Del
+        </button>
+      )}
     </li>
   );
 }

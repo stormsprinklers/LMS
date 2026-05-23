@@ -47,9 +47,11 @@ const btnSecondary =
 export function ExamDetailClient({
   exam,
   allUsers,
+  allowDestructive = true,
 }: {
   exam: ExamData;
   allUsers: { id: string; email: string; name: string | null }[];
+  allowDestructive?: boolean;
 }) {
   const router = useRouter();
   const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null);
@@ -83,6 +85,18 @@ export function ExamDetailClient({
 
   return (
     <div className="space-y-8 min-w-0">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between rounded-xl border border-storm-medium-blue/30 bg-storm-medium-blue/10 px-4 py-3">
+        <p className="text-sm text-storm-navy">
+          View scores and submissions for all learners who have taken this exam.
+        </p>
+        <Link
+          href={`/admin/grades/exams/${exam.id}`}
+          className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-lg bg-storm-medium-blue px-4 py-2 text-sm font-semibold text-white no-underline"
+        >
+          Learner grades →
+        </Link>
+      </div>
+
       <form onSubmit={saveSettings} className="w-full space-y-4 rounded-xl border bg-white p-4 sm:p-5">
         <h2 className="font-medium text-storm-navy">Settings</h2>
         <input name="title" defaultValue={exam.title} required placeholder="Title" className={inputClass} />
@@ -97,8 +111,18 @@ export function ExamDetailClient({
             <input name="timeLimitMinutes" type="number" defaultValue={exam.timeLimitMinutes} className={inputClass} />
           </label>
           <label className="text-sm">
-            <span className="mb-1 block text-storm-navy/70">Attempts</span>
-            <input name="attemptsAllowed" type="number" min={1} defaultValue={exam.attemptsAllowed < 1 ? 3 : exam.attemptsAllowed} className={inputClass} />
+            <span className="mb-1 block text-storm-navy/70">Submissions allowed</span>
+            <input
+              name="attemptsAllowed"
+              type="number"
+              min={1}
+              required
+              defaultValue={exam.attemptsAllowed < 1 ? 3 : exam.attemptsAllowed}
+              className={inputClass}
+            />
+            <span className="mt-1 block text-xs text-storm-navy/50">
+              Final submissions per learner (saved progress does not count).
+            </span>
           </label>
         </div>
         <label className="flex min-h-11 items-center gap-3 text-sm">
@@ -150,13 +174,15 @@ export function ExamDetailClient({
           </>
         )}
         <ExamCsvTools examId={exam.id} />
-        <ExamDangerZone
-          examId={exam.id}
-          examTitle={exam.title}
-          archived={exam.archived}
-          hasLessonLink={!!exam.lesson}
-          attemptCount={exam._count.attempts}
-        />
+        {allowDestructive && (
+          <ExamDangerZone
+            examId={exam.id}
+            examTitle={exam.title}
+            archived={exam.archived}
+            hasLessonLink={!!exam.lesson}
+            attemptCount={exam._count.attempts}
+          />
+        )}
       </form>
 
       {exam.archived && (
@@ -169,7 +195,7 @@ export function ExamDetailClient({
         </p>
       )}
 
-      {exam.course && (
+      {allowDestructive && exam.course && (
         <Link
           href={`/admin/courses/${exam.course.slug}/admins`}
           className="inline-flex min-h-11 items-center text-sm font-medium text-storm-medium-blue no-underline"

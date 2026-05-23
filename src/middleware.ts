@@ -20,17 +20,33 @@ export default auth((req) => {
     return NextResponse.redirect(new URL("/", req.nextUrl.origin));
   }
 
-  if (pathname.startsWith("/admin/") && req.auth) {
+  if (pathname.startsWith("/admin") && req.auth) {
     const role = (req.auth.user as { role?: string })?.role;
+
     if (role === "ADMIN") {
       return NextResponse.next();
     }
+
+    if (role === "MANAGER") {
+      const allowed =
+        pathname === "/admin" ||
+        pathname.startsWith("/admin/courses") ||
+        pathname.startsWith("/admin/exams") ||
+        pathname.startsWith("/admin/grading");
+      if (allowed) return NextResponse.next();
+      return NextResponse.redirect(new URL("/admin/courses", req.nextUrl.origin));
+    }
+
     if (
       role === "COURSE_ADMIN" &&
-      (pathname.startsWith("/admin/grading") || pathname === "/admin")
+      (pathname.startsWith("/admin/grading") ||
+        pathname.startsWith("/admin/grades/courses/") ||
+        pathname.startsWith("/admin/grades/exams/") ||
+        pathname === "/admin")
     ) {
       return NextResponse.next();
     }
+
     return NextResponse.redirect(new URL("/", req.nextUrl.origin));
   }
 

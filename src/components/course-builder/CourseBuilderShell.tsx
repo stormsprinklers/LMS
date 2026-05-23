@@ -22,9 +22,11 @@ export type BuilderTab = (typeof TABS)[number]["id"];
 export function CourseBuilderShell({
   course,
   users,
+  allowDestructive = true,
 }: {
   course: CourseBuilderCourse;
   users: { id: string; email: string; name: string | null; jobRole: string | null }[];
+  allowDestructive?: boolean;
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -72,6 +74,14 @@ export function CourseBuilderShell({
           </span>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
+          {allowDestructive && (
+            <Link
+              href={`/admin/grades/courses/${course.id}`}
+              className="inline-flex min-h-10 items-center rounded-lg border border-storm-medium-blue/50 px-4 py-2 text-sm font-medium text-storm-medium-blue no-underline hover:bg-storm-medium-blue/5"
+            >
+              Learner grades
+            </Link>
+          )}
           <Link
             href={`/courses/${course.slug}?preview=1`}
             target="_blank"
@@ -106,7 +116,9 @@ export function CourseBuilderShell({
       </nav>
 
       {tab === "info" && <CourseInfoTab course={course} />}
-      {tab === "curriculum" && <CurriculumTab course={course} />}
+      {tab === "curriculum" && (
+        <CurriculumTab course={course} allowDestructive={allowDestructive} />
+      )}
       {tab === "settings" && <SettingsTab course={course} />}
       {tab === "assignments" && <AssignmentsTab courseId={course.id} users={users} />}
       {tab === "preview" && <PreviewPublishTab course={course} />}
