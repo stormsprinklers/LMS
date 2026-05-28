@@ -17,7 +17,9 @@ import {
   updateAiSessionAllowedItemTypes,
   uploadAiSource,
   deleteAiSourceAsset,
+  attachLibraryAssetsToSession,
 } from "@/lib/actions/ai-builder";
+import { LibraryPicker } from "@/components/library/LibraryPicker";
 import {
   DEFAULT_ALLOWED_ITEM_TYPES,
   parseAllowedItemTypes,
@@ -72,6 +74,7 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
   const [pasteTitle, setPasteTitle] = useState("");
   const [pasteText, setPasteText] = useState("");
   const [pasteNote, setPasteNote] = useState("");
+  const [librarySelectedIds, setLibrarySelectedIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [blueprint, setBlueprint] = useState<CourseBlueprint | null>(null);
@@ -118,21 +121,24 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
     async function runContentGeneration() {
       setBusy(true);
       setError("");
-      while (!cancelled) {
-        const result = await generateNextBlueprintItem(sessionId!);
-        if (result.error) {
-          setError(result.error);
-          break;
+      try {
+        while (!cancelled) {
+          const result = await generateNextBlueprintItem(sessionId!);
+          if (result.error) {
+            setError(result.error);
+            break;
+          }
+          if (result.blueprint) setBlueprint(result.blueprint);
+          if (result.progress) setContentProgress(result.progress);
+          if (result.done) {
+            setStep("preview");
+            break;
+          }
         }
-        if (result.blueprint) setBlueprint(result.blueprint);
-        if (result.progress) setContentProgress(result.progress);
-        if (result.done) {
-          setStep("preview");
-          break;
-        }
+      } finally {
+        setBusy(false);
+        contentGenStarted.current = false;
       }
-      setBusy(false);
-      contentGenStarted.current = false;
     }
 
     void runContentGeneration();
@@ -148,20 +154,27 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
     }
     setBusy(true);
     setError("");
-    const result = await createAiSession(course.id, mode, {
-      targetModuleId:
-        mode !== "course" && targetModuleId ? targetModuleId : undefined,
-      userPrompt,
-      allowedItemTypes,
-    });
-    setBusy(false);
-    if (!result.session) {
-      setError("Could not create session.");
-      return;
+    try {
+      const result = await createAiSession(course.id, mode, {
+        targetModuleId:
+          mode !== "course" && targetModuleId ? targetModuleId : undefined,
+        userPrompt,
+        allowedItemTypes,
+      });
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      if (!result.session) {
+        setError("Could not create session.");
+        return;
+      }
+      setSessionId(result.session.id);
+      setAssets(result.session.assets ?? []);
+      setStep("sources");
+    } finally {
+      setBusy(false);
     }
-    setSessionId(result.session.id);
-    setAssets(result.session.assets ?? []);
-    setStep("sources");
   }
 
   async function postSource(fd: FormData) {
@@ -204,21 +217,24 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
     }
     setBusy(true);
     setError("");
-    let ok = true;
-    for (const p of pendingFiles) {
-      const fd = new FormData();
-      fd.set("file", p.file);
-      fd.set("sourceNote", p.note.trim());
-      fd.set("includeRecording", fileIncludeRecording ? "true" : "false");
-      if (!(await postSource(fd))) {
-        ok = false;
-        break;
+    try {
+      let ok = true;
+      for (const p of pendingFiles) {
+        const fd = new FormData();
+        fd.set("file", p.file);
+        fd.set("sourceNote", p.note.trim());
+        fd.set("includeRecording", fileIncludeRecording ? "true" : "false");
+        if (!(await postSource(fd))) {
+          ok = false;
+          break;
+        }
       }
-    }
-    setBusy(false);
-    if (ok) {
-      setPendingFiles([]);
-      await pollSession(sessionId);
+      if (ok) {
+        setPendingFiles([]);
+        await pollSession(sessionId);
+      }
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -507,8 +523,51 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
         <div className="space-y-6 rounded-xl border bg-white p-4 sm:p-6">
           <p className="text-sm text-storm-navy/70">
             Add as many sources as you need. Each file, link, or pasted text must
-            include its own note.
+            include its own note, or pick ready items from the{" "}
+            <a href="/library" className="text-storm-medium-blue underline">
+              Library
+            </a>
+            .
           </p>
+
+          <section className="space-y-3 rounded-lg border border-storm-light-blue/40 p-4">
+            <h3 className="text-sm font-medium text-storm-navy">From library</h3>
+            <p className="text-xs text-storm-navy/60">
+              Reuse PDFs, videos, and other materials you or your team uploaded with
+              descriptions.
+            </p>
+            <LibraryPicker
+              selectedIds={librarySelectedIds}
+              onChange={setLibrarySelectedIds}
+              disabled={busy}
+            />
+            <button
+              type="button"
+              disabled={busy || librarySelectedIds.length === 0}
+              onClick={async () => {
+                setBusy(true);
+                setError("");
+                try {
+                  const result = await attachLibraryAssetsToSession(
+                    sessionId,
+                    librarySelectedIds,
+                  );
+                  if (result.error) {
+                    setError(result.error);
+                    return;
+                  }
+                  setLibrarySelectedIds([]);
+                  await pollSession(sessionId);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+              className="min-h-10 rounded-lg border px-4 text-sm font-medium"
+            >
+              Add {librarySelectedIds.length > 0 ? librarySelectedIds.length : ""}{" "}
+              from library
+            </button>
+          </section>
 
           <section className="space-y-3 rounded-lg border border-storm-light-blue/40 p-4">
             <h3 className="text-sm font-medium text-storm-navy">Files</h3>

@@ -18,6 +18,11 @@ function resolveAiSourceAssetId(passthrough: string | undefined): string | null 
   return passthrough.slice("ai-asset:".length);
 }
 
+function resolveLibraryAssetId(passthrough: string | undefined): string | null {
+  if (!passthrough?.startsWith("library-asset:")) return null;
+  return passthrough.slice("library-asset:".length);
+}
+
 export async function POST(request: Request) {
   const secret = process.env.MUX_WEBHOOK_SECRET;
   if (secret) {
@@ -41,6 +46,19 @@ export async function POST(request: Request) {
     if (aiAssetId && playbackId) {
       await prisma.aiSourceAsset.update({
         where: { id: aiAssetId },
+        data: {
+          muxAssetId: assetId,
+          muxPlaybackId: playbackId,
+          durationSeconds: duration,
+          processingStatus: "ready",
+        },
+      });
+    }
+
+    const libraryAssetId = resolveLibraryAssetId(passthrough);
+    if (libraryAssetId && playbackId) {
+      await prisma.libraryAsset.update({
+        where: { id: libraryAssetId },
         data: {
           muxAssetId: assetId,
           muxPlaybackId: playbackId,

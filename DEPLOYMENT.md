@@ -16,6 +16,15 @@ The error `404: NOT_FOUND` with an ID like `sfo1::...` is **Vercel’s platform*
 
    Enable each for **Production**, **Preview**, and **Development** so they are available at **build time**.
 
+   **If Library or AI Studio fails** with missing table errors (`LibraryAsset`, `AiGenerationSession`), production is behind migrations. From your machine (same `DATABASE_URL` as Vercel):
+
+
+   ```bash
+   npm run db:migrate:deploy
+   ```
+
+   Or run [`scripts/apply-ai-studio-schema.sql`](scripts/apply-ai-studio-schema.sql) in the Neon SQL Editor, then `npm run db:migrate:deploy` to sync migration history.
+
    **If Admin → Users shows “Database update required”** or logs `Invite.openSignup does not exist`, production is behind the Prisma schema. From your machine:
 
    ```bash

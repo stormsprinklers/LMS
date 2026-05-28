@@ -1,10 +1,11 @@
 "use server";
 
 import { put } from "@vercel/blob";
+import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
 import { requireManageCourse } from "@/lib/auth-utils";
-import type { AiGenerationMode, AiSourceAssetKind } from "@prisma/client";
+import type { AiGenerationMode } from "@prisma/client";
 import {
   courseBlueprintSchema,
   parseStructureFromLlm,
@@ -28,27 +29,20 @@ import {
   filterBlueprintByAllowedTypes,
   type BlueprintItemType,
 } from "@/lib/ai/allowed-item-types";
+import {
+  kindFromMime,
+  isHttpUrl,
+  MAX_MEDIA_FILE_BYTES,
+} from "@/lib/media/asset-utils";
 
-const MAX_FILE_BYTES = 80 * 1024 * 1024;
+const MAX_FILE_BYTES = MAX_MEDIA_FILE_BYTES;
 const MAX_ASSETS_PER_SESSION = 20;
 
-function kindFromMime(mime: string, filename: string): AiSourceAssetKind {
-  const lower = filename.toLowerCase();
-  if (mime.includes("pdf") || lower.endsWith(".pdf")) return "pdf";
-  if (
-    mime.includes("presentation") ||
-    lower.endsWith(".pptx") ||
-    lower.endsWith(".ppt")
-  ) {
-    return "pptx";
+function formatPrismaActionError(e: unknown): string {
+  if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2021") {
+    return "AI Studio database tables are missing. Run npm run db:migrate:deploy with your production DATABASE_URL (see scripts/apply-ai-studio-schema.sql).";
   }
-  if (mime.startsWith("audio/") || /\.(mp3|wav|m4a|ogg)$/i.test(lower)) return "audio";
-  if (mime.startsWith("video/") || /\.(mp4|mov|webm)$/i.test(lower)) return "video";
-  if (mime.startsWith("image/")) return "image";
-  if (mime.startsWith("text/") || lower.endsWith(".txt") || lower.endsWith(".md")) {
-    return "text";
-  }
-  return "text";
+  return e instanceof Error ? e.message : "Something went wrong.";
 }
 
 function enrichBlueprintWithAssets(
@@ -85,25 +79,29 @@ export async function createAiSession(
     allowedItemTypes?: BlueprintItemType[];
   },
 ) {
-  const session = await requireManageCourse(courseId);
-  const allowed = options?.allowedItemTypes?.length
-    ? options.allowedItemTypes
-    : parseAllowedItemTypes(null);
+  try {
+    const session = await requireManageCourse(courseId);
+    const allowed = options?.allowedItemTypes?.length
+      ? options.allowedItemTypes
+      : parseAllowedItemTypes(null);
 
-  const aiSession = await prisma.aiGenerationSession.create({
-    data: {
-      courseId,
-      createdById: session.user.id,
-      mode,
-      targetModuleId: options?.targetModuleId ?? null,
-      userPrompt: options?.userPrompt?.trim() || null,
-      allowedItemTypes: allowed,
-      status: "collecting",
-    },
-    include: { assets: { orderBy: { sortOrder: "asc" } } },
-  });
-  revalidatePath(`/admin/courses/${courseId}/builder`);
-  return { session: aiSession };
+    const aiSession = await prisma.aiGenerationSession.create({
+      data: {
+        courseId,
+        createdById: session.user.id,
+        mode,
+        targetModuleId: options?.targetModuleId ?? null,
+        userPrompt: options?.userPrompt?.trim() || null,
+        allowedItemTypes: allowed,
+        status: "collecting",
+      },
+      include: { assets: { orderBy: { sortOrder: "asc" } } },
+    });
+    revalidatePath(`/admin/courses/${courseId}/builder`);
+    return { session: aiSession };
+  } catch (e) {
+    return { error: formatPrismaActionError(e) };
+  }
 }
 
 export async function updateAiSessionAllowedItemTypes(
@@ -160,16 +158,89 @@ function readSourceNote(formData: FormData): string | null {
   return note || null;
 }
 
-function isHttpUrl(value: string): boolean {
+export async function attachLibraryAssetsToSession(
+  sessionId: string,
+  libraryAssetIds: string[],
+): Promise<{ attached?: number; error?: string }> {
   try {
-    const u = new URL(value);
-    return u.protocol === "http:" || u.protocol === "https:";
-  } catch {
-    return false;
+    const session = await requireUserForAiSession(sessionId);
+    if (!libraryAssetIds.length) return { error: "Select at least one library item." };
+
+    const uniqueIds = [...new Set(libraryAssetIds)];
+    const currentCount = await prisma.aiSourceAsset.count({ where: { sessionId } });
+    if (currentCount + uniqueIds.length > MAX_ASSETS_PER_SESSION) {
+      return {
+        error: `Maximum ${MAX_ASSETS_PER_SESSION} sources per session (including library items).`,
+      };
+    }
+
+    const libraryRows = await prisma.libraryAsset.findMany({
+      where: { id: { in: uniqueIds }, archived: false },
+    });
+    if (libraryRows.length !== uniqueIds.length) {
+      return { error: "One or more library items were not found." };
+    }
+
+    const userId = session.userId;
+    for (const lib of libraryRows) {
+      if (lib.scope !== "shared" && lib.createdById !== userId) {
+        return { error: "You cannot use a private library item owned by someone else." };
+      }
+    }
+
+    let sortOrder = currentCount;
+    for (const lib of libraryRows) {
+      await prisma.aiSourceAsset.create({
+        data: {
+          sessionId,
+          libraryAssetId: lib.id,
+          kind: lib.kind,
+          filename: lib.filename ?? lib.title,
+          mimeType: lib.mimeType,
+          blobUrl: lib.blobUrl,
+          placementHint: lib.description,
+          includeRecording: lib.includeRecording,
+          extractedText: lib.extractedText,
+          transcript: lib.transcript,
+          summary: lib.summary,
+          durationSeconds: lib.durationSeconds,
+          muxAssetId: lib.muxAssetId,
+          muxPlaybackId: lib.muxPlaybackId,
+          processingStatus: lib.processingStatus,
+          processingError: lib.processingError,
+          sortOrder: sortOrder++,
+        },
+      });
+    }
+
+    return { attached: libraryRows.length };
+  } catch (e) {
+    return { error: formatPrismaActionError(e) };
   }
 }
 
+async function requireUserForAiSession(sessionId: string) {
+  const aiSession = await prisma.aiGenerationSession.findUnique({
+    where: { id: sessionId },
+    select: { courseId: true },
+  });
+  if (!aiSession) throw new Error("Session not found.");
+  const authSession = await requireManageCourse(aiSession.courseId);
+  return { userId: authSession.user.id };
+}
+
 export async function uploadAiSource(
+  sessionId: string,
+  formData: FormData,
+): Promise<{ asset?: { id: string }; error?: string }> {
+  try {
+    return await uploadAiSourceInner(sessionId, formData);
+  } catch (e) {
+    return { error: formatPrismaActionError(e) };
+  }
+}
+
+async function uploadAiSourceInner(
   sessionId: string,
   formData: FormData,
 ): Promise<{ asset?: { id: string }; error?: string }> {

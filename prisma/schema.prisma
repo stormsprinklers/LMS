@@ -170,6 +170,42 @@ model User {
   skillCheckCompletions     SkillCheckCompletion[]
   skillCheckEvaluations     SkillCheckCompletion[] @relation("SkillCheckEvaluator")
   aiGenerationSessions AiGenerationSession[]
+  libraryAssets        LibraryAsset[]
+}
+
+enum LibraryAssetScope {
+  personal
+  shared
+}
+
+model LibraryAsset {
+  id                String                  @id @default(cuid())
+  title             String
+  description       String                  @db.Text
+  scope             LibraryAssetScope       @default(personal)
+  createdById       String
+  kind              AiSourceAssetKind
+  filename          String?
+  mimeType          String?
+  blobUrl           String?
+  includeRecording  Boolean                 @default(true)
+  extractedText     String?                 @db.Text
+  transcript        String?                 @db.Text
+  summary           String?                 @db.Text
+  durationSeconds   Int?
+  muxAssetId        String?
+  muxPlaybackId     String?
+  processingStatus  AiAssetProcessingStatus @default(pending)
+  processingError   String?                 @db.Text
+  archived          Boolean                 @default(false)
+  archivedAt        DateTime?
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+
+  createdBy User @relation(fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([createdById])
+  @@index([scope, archived])
 }
 
 enum AiGenerationMode {
@@ -232,6 +268,7 @@ model AiGenerationSession {
 model AiSourceAsset {
   id                String                  @id @default(cuid())
   sessionId         String
+  libraryAssetId    String?
   kind              AiSourceAssetKind
   filename          String?
   mimeType          String?

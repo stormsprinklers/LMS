@@ -4,6 +4,7 @@ import {
   BookOpen,
   ClipboardCheck,
   FileText,
+  FolderOpen,
   GraduationCap,
   LayoutDashboard,
   PlayCircle,
@@ -19,6 +20,7 @@ export const learnerNavItems: NavItem[] = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/courses", label: "Courses", icon: GraduationCap },
   { href: "/training", label: "Video Training", icon: PlayCircle },
+  { href: "/library", label: "Library", icon: FolderOpen },
   { href: "/manuals", label: "Manuals", icon: FileText },
   { href: "/exams", label: "Exams", icon: ClipboardCheck },
   { href: "/certifications", label: "Certifications", icon: Award },
@@ -45,7 +47,8 @@ export const adminSubNavItems = [
   { href: "/admin/skill-checks", label: "Skill Checks" },
   { href: "/admin/users", label: "Users" },
   { href: "/admin/certifications", label: "Certifications" },
-  { href: "/admin/media", label: "Media" },
+  { href: "/library", label: "Library" },
+  { href: "/admin/media", label: "Media (legacy)" },
   { href: "/admin/archived", label: "Archived" },
 ] as const;
 
