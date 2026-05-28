@@ -93,15 +93,53 @@ export const scenarioContentSchema = z.object({
 export const blueprintItemSchema = z.object({
   type: itemTypeSchema,
   title: z.string().min(1),
+  /** Structure-phase plan; kept for context during content generation. */
+  outline: z.string().optional(),
   track: trackSchema.optional(),
   isRequired: z.boolean().optional(),
   estimatedMinutes: z.number().int().positive().optional(),
   completionRule: z.string().optional(),
+  linkedSourceAssetRefs: z.array(z.string()).optional(),
   lesson: lessonContentSchema.optional(),
   video: videoContentSchema.optional(),
   exam: examContentSchema.optional(),
   scenario: scenarioContentSchema.optional(),
 });
+
+export const structureItemSchema = z.object({
+  type: itemTypeSchema,
+  title: z.string().min(1),
+  outline: z.string().min(1),
+  track: trackSchema.optional(),
+  isRequired: z.boolean().optional(),
+  estimatedMinutes: z.number().int().positive().optional(),
+  linkedSourceAssetRefs: z.array(z.string()).optional(),
+});
+
+const courseMetaSchema = z.object({
+  title: z.string().min(1),
+  description: z.string().optional(),
+  shortDescription: z.string().optional(),
+  category: z.string().optional(),
+  estimatedMinutes: z.number().int().positive().optional(),
+  learningObjectives: z.array(z.string()).optional(),
+});
+
+export const courseStructureSchema = z.object({
+  version: z.literal(BLUEPRINT_VERSION),
+  mode: blueprintModeSchema,
+  course: courseMetaSchema,
+  modules: z.array(
+    z.object({
+      title: z.string().min(1),
+      description: z.string().optional(),
+      sortOrder: z.number().int().nonnegative().optional(),
+      items: z.array(structureItemSchema).default([]),
+    }),
+  ),
+});
+
+export type CourseStructure = z.infer<typeof courseStructureSchema>;
 
 export const blueprintModuleSchema = z.object({
   title: z.string().min(1),
@@ -113,14 +151,7 @@ export const blueprintModuleSchema = z.object({
 export const courseBlueprintSchema = z.object({
   version: z.literal(BLUEPRINT_VERSION),
   mode: blueprintModeSchema,
-  course: z.object({
-    title: z.string().min(1),
-    description: z.string().optional(),
-    shortDescription: z.string().optional(),
-    category: z.string().optional(),
-    estimatedMinutes: z.number().int().positive().optional(),
-    learningObjectives: z.array(z.string()).optional(),
-  }),
+  course: courseMetaSchema,
   modules: z.array(blueprintModuleSchema).default([]),
   sourceAssets: z.array(sourceAssetSchema).optional(),
   mediaPlacements: z.array(mediaPlacementSchema).optional(),
@@ -255,6 +286,115 @@ export const courseBlueprintJsonSchema = {
     },
   },
 } as const;
+
+/** JSON Schema for phase 1 — structure only (no lesson bodies or exam questions). */
+export const courseStructureJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["version", "mode", "course", "modules"],
+  properties: {
+    version: { type: "string", enum: [BLUEPRINT_VERSION] },
+    mode: { type: "string", enum: ["course", "module", "lesson"] },
+    course: courseBlueprintJsonSchema.properties.course,
+    modules: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["title", "items"],
+        properties: {
+          title: { type: "string" },
+          description: { type: "string" },
+          sortOrder: { type: "number" },
+          items: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["type", "title", "outline"],
+              properties: {
+                type: {
+                  type: "string",
+                  enum: ["LESSON", "VIDEO", "QUIZ", "EXAM", "SCENARIO", "SKILL_CHECK"],
+                },
+                title: { type: "string" },
+                outline: { type: "string" },
+                track: { type: "string", enum: ["LEARN", "PRACTICE", "PROVE"] },
+                isRequired: { type: "boolean" },
+                estimatedMinutes: { type: "number" },
+                linkedSourceAssetRefs: {
+                  type: "array",
+                  items: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+} as const;
+
+export function normalizeStructureFromLlm(raw: unknown): unknown {
+  if (!raw || typeof raw !== "object") return raw;
+  const o = { ...(raw as Record<string, unknown>) };
+  delete o.sourceAssets;
+  delete o.mediaPlacements;
+  if (Array.isArray(o.modules)) {
+    o.modules = o.modules.map((mod) => {
+      if (!mod || typeof mod !== "object") return mod;
+      const m = { ...(mod as Record<string, unknown>) };
+      if (Array.isArray(m.items)) {
+        m.items = m.items.map((item) => {
+          if (!item || typeof item !== "object") return item;
+          const it = { ...(item as Record<string, unknown>) };
+          delete it.lesson;
+          delete it.video;
+          delete it.exam;
+          delete it.scenario;
+          if (typeof it.outline !== "string" || !it.outline.trim()) {
+            it.outline = `Cover: ${String(it.title ?? "topic")}`;
+          }
+          return it;
+        });
+      }
+      return m;
+    });
+  }
+  if (o.version !== BLUEPRINT_VERSION) o.version = BLUEPRINT_VERSION;
+  return o;
+}
+
+export function parseStructureFromLlm(data: unknown): CourseStructure {
+  return courseStructureSchema.parse(normalizeStructureFromLlm(data));
+}
+
+export function structureToBlueprint(
+  structure: CourseStructure,
+): CourseBlueprint {
+  return {
+    version: structure.version,
+    mode: structure.mode,
+    course: structure.course,
+    modules: structure.modules.map((mod) => ({
+      title: mod.title,
+      description: mod.description,
+      sortOrder: mod.sortOrder,
+      items: mod.items.map((item) => ({
+        type: item.type,
+        title: item.title,
+        outline: item.outline,
+        track: item.track,
+        isRequired: item.isRequired,
+        estimatedMinutes: item.estimatedMinutes,
+        linkedSourceAssetRefs: item.linkedSourceAssetRefs,
+        ...(item.type === "LESSON" ? { lesson: { bodyHtml: "" } } : {}),
+        ...(item.type === "VIDEO" ? { video: { includeRecording: true } } : {}),
+        ...(item.type === "SCENARIO" ? { scenario: { prompt: "" } } : {}),
+      })),
+    })),
+  };
+}
 
 const PLACEMENT_POSITIONS = new Set([
   "intro",

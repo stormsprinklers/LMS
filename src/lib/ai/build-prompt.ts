@@ -93,6 +93,67 @@ Prefer practical, safety-aware training content. HTML in lesson.bodyHtml should 
   return { system, user };
 }
 
+export function buildStructureGenerationMessages(options: {
+  mode: AiGenerationMode;
+  userPrompt: string;
+  courseTitle: string;
+  courseDescription?: string | null;
+  targetModuleTitle?: string;
+  assets: AiSourceAsset[];
+}) {
+  const base = buildGenerationMessages(options);
+  const system = `${base.system}
+
+PHASE 1 — STRUCTURE ONLY:
+- Output modules and items with type, title, and outline (1-3 sentences per item describing what the item will teach).
+- Do NOT include lesson.bodyHtml, exam.questions, video transcripts, or other full content.
+- Do NOT include sourceAssets[] in JSON.
+- Link relevant uploads via linkedSourceAssetRefs (asset id strings) when applicable.`;
+
+  const user = `${base.user}
+
+Return structure JSON only: each item must have "outline" and must NOT have lesson, exam, video, or scenario content fields.`;
+
+  return { system, user };
+}
+
+export function buildItemContentUserMessage(options: {
+  blueprint: CourseBlueprint;
+  moduleIndex: number;
+  itemIndex: number;
+  assets: AiSourceAsset[];
+}) {
+  const { blueprint, moduleIndex, itemIndex, assets } = options;
+  const mod = blueprint.modules[moduleIndex];
+  const item = mod?.items[itemIndex];
+  if (!item) return "";
+
+  const linked = item.linkedSourceAssetRefs ?? [];
+  const assetNotes = assets
+    .filter((a) => linked.includes(a.id))
+    .map(
+      (a) =>
+        `- ${a.id} (${a.kind}): ${a.placementHint ?? ""} ${a.summary?.slice(0, 500) ?? a.extractedText?.slice(0, 500) ?? ""}`,
+    )
+    .join("\n");
+
+  return [
+    `Generate full content for this curriculum item only.`,
+    `Module ${moduleIndex + 1}: ${mod.title}`,
+    `Item: ${JSON.stringify(item, null, 2)}`,
+    assetNotes ? `Linked sources:\n${assetNotes}` : "",
+    `Return JSON: { "item": { ...complete item with ${item.type} content filled in... } }`,
+    `Keep type, title, outline, track, and linkedSourceAssetRefs unless you must adjust them.`,
+    `LESSON: rich bodyHtml (multiple sections, lists, practical steps).`,
+    `VIDEO: sourceAssetRef and/or youtubeUrl, transcript summary if no recording.`,
+    `EXAM/QUIZ: at least 5 questions with options where applicable.`,
+    `SCENARIO: detailed prompt and backgroundInfo.`,
+    `SKILL_CHECK: keep outline only; add scenario stub prompt if helpful.`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
 export function buildReworkMessages(
   blueprint: CourseBlueprint,
   instruction: string,

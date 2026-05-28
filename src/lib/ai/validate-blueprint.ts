@@ -1,4 +1,4 @@
-import type { CourseBlueprint } from "./blueprint-schema";
+import type { CourseBlueprint, CourseStructure } from "./blueprint-schema";
 
 export type BlueprintIssue = {
   level: "error" | "warning";
@@ -6,7 +6,38 @@ export type BlueprintIssue = {
   path?: string;
 };
 
-export function validateBlueprint(blueprint: CourseBlueprint): {
+export function validateStructureBlueprint(structure: CourseStructure): {
+  ok: boolean;
+  issues: BlueprintIssue[];
+} {
+  const issues: BlueprintIssue[] = [];
+
+  if (!structure.course.title.trim()) {
+    issues.push({ level: "error", message: "Course title is required.", path: "course.title" });
+  }
+  if (structure.mode === "course" && structure.modules.length === 0) {
+    issues.push({ level: "error", message: "Add at least one module.", path: "modules" });
+  }
+
+  structure.modules.forEach((mod, mi) => {
+    mod.items.forEach((item, ii) => {
+      if (!item.outline?.trim()) {
+        issues.push({
+          level: "warning",
+          message: `Item "${item.title}" has no outline.`,
+          path: `modules[${mi}].items[${ii}].outline`,
+        });
+      }
+    });
+  });
+
+  return { ok: !issues.some((i) => i.level === "error"), issues };
+}
+
+export function validateBlueprint(
+  blueprint: CourseBlueprint,
+  options?: { structureOnly?: boolean },
+): {
   ok: boolean;
   issues: BlueprintIssue[];
 } {
@@ -60,7 +91,11 @@ export function validateBlueprint(blueprint: CourseBlueprint): {
     mod.items.forEach((item, ii) => {
       const path = `modules[${mi}].items[${ii}]`;
       if (item.type === "LESSON") {
-        if (!item.lesson?.bodyHtml?.trim()) {
+        const hasOutline = !!item.outline?.trim();
+        const hasBody = !!item.lesson?.bodyHtml?.trim();
+        if (!hasBody && options?.structureOnly && hasOutline) {
+          /* expected before content phase */
+        } else if (!hasBody) {
           issues.push({
             level: "warning",
             message: `Lesson "${item.title}" has empty content.`,
@@ -85,7 +120,7 @@ export function validateBlueprint(blueprint: CourseBlueprint): {
       if (item.type === "EXAM" || item.type === "QUIZ") {
         if (!item.exam?.questions?.length) {
           issues.push({
-            level: "error",
+            level: options?.structureOnly ? "warning" : "error",
             message: `Exam "${item.title}" has no questions.`,
             path: `${path}.exam`,
           });

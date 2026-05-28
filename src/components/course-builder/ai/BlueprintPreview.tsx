@@ -12,6 +12,7 @@ export function BlueprintPreview({
   selectedItem,
   onSelectModule,
   onSelectItem,
+  structureOnly = false,
 }: {
   blueprint: CourseBlueprint;
   issues: BlueprintIssue[];
@@ -19,6 +20,7 @@ export function BlueprintPreview({
   selectedItem: number | null;
   onSelectModule: (index: number) => void;
   onSelectItem: (moduleIndex: number, itemIndex: number) => void;
+  structureOnly?: boolean;
 }) {
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
@@ -102,6 +104,7 @@ export function BlueprintPreview({
               blueprint={blueprint}
               moduleIndex={selectedModule}
               itemIndex={selectedItem}
+              structureOnly={structureOnly}
             />
           )}
         </div>
@@ -114,10 +117,12 @@ function PreviewItemDetail({
   blueprint,
   moduleIndex,
   itemIndex,
+  structureOnly,
 }: {
   blueprint: CourseBlueprint;
   moduleIndex: number;
   itemIndex: number | null;
+  structureOnly?: boolean;
 }) {
   const mod = blueprint.modules[moduleIndex];
   if (!mod) return null;
@@ -139,7 +144,12 @@ function PreviewItemDetail({
       <p className="font-medium text-storm-navy">
         {item.type}: {item.title}
       </p>
-      {item.lesson?.bodyHtml && (
+      {item.outline && (structureOnly || !item.lesson?.bodyHtml?.trim()) && (
+        <p className="mt-2 rounded-lg bg-storm-light-grey/40 px-3 py-2 text-storm-navy/90">
+          {item.outline}
+        </p>
+      )}
+      {!structureOnly && item.lesson?.bodyHtml && (
         <div
           className="prose prose-sm mt-3 max-w-none"
           dangerouslySetInnerHTML={{ __html: item.lesson.bodyHtml }}

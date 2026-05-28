@@ -1,14 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { CourseBuilderCourse } from "@/lib/course-builder/types";
 import type { CourseBlueprint } from "@/lib/ai/blueprint-schema";
 import type { BlueprintIssue } from "@/lib/ai/validate-blueprint";
 import {
   applyCourseBlueprint,
+  approveStructureAndGenerateContent,
   createAiSession,
-  generateCourseBlueprint,
+  generateCourseStructure,
+  generateNextBlueprintItem,
   processAiSession,
   reworkBlueprintSectionAction,
   updateAiSessionPrompt,
@@ -16,14 +18,28 @@ import {
   deleteAiSourceAsset,
 } from "@/lib/actions/ai-builder";
 import { BlueprintPreview } from "../ai/BlueprintPreview";
+import { AiLoadingSpinner } from "../ai/AiLoadingSpinner";
 
-type WizardStep = "intent" | "sources" | "processing" | "generate" | "preview" | "actions";
+type WizardStep =
+  | "intent"
+  | "sources"
+  | "processing"
+  | "generate"
+  | "structure_preview"
+  | "generating_content"
+  | "preview";
+
+type PendingFile = {
+  id: string;
+  file: File;
+  note: string;
+};
 
 export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
   const router = useRouter();
   const [step, setStep] = useState<WizardStep>("intent");
   const [mode, setMode] = useState<"course" | "module" | "lesson">("course");
-  const [targetModuleId, setTargetModuleId] = useState<string>("");
+  const [targetModuleId, setTargetModuleId] = useState("");
   const [userPrompt, setUserPrompt] = useState("");
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [assets, setAssets] = useState<
@@ -37,12 +53,15 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
       blobUrl: string | null;
     }[]
   >([]);
-  const [sourceNote, setSourceNote] = useState("");
-  const [includeRecording, setIncludeRecording] = useState(true);
+  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
+  const [fileIncludeRecording, setFileIncludeRecording] = useState(true);
+  const [urlNote, setUrlNote] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
   const [urlKind, setUrlKind] = useState<"webpage" | "video">("webpage");
-  const [pastedTitle, setPastedTitle] = useState("");
-  const [pastedText, setPastedText] = useState("");
+  const [urlIncludeRecording, setUrlIncludeRecording] = useState(true);
+  const [pasteTitle, setPasteTitle] = useState("");
+  const [pasteText, setPasteText] = useState("");
+  const [pasteNote, setPasteNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [blueprint, setBlueprint] = useState<CourseBlueprint | null>(null);
@@ -50,6 +69,12 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
   const [selectedModule, setSelectedModule] = useState<number | null>(0);
   const [selectedItem, setSelectedItem] = useState<number | null>(null);
   const [reworkInstruction, setReworkInstruction] = useState("");
+  const [contentProgress, setContentProgress] = useState<{
+    current: number;
+    total: number;
+    label?: string;
+  } | null>(null);
+  const contentGenStarted = useRef(false);
 
   const pollSession = useCallback(async (id: string) => {
     const res = await fetch(`/api/admin/ai-sessions/${id}`);
@@ -59,6 +84,7 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
     if (data.blueprintJson) {
       setBlueprint(data.blueprintJson as CourseBlueprint);
     }
+    if (data.status === "structure_ready") setStep("structure_preview");
     if (data.status === "ready") setStep("preview");
     if (data.status === "failed" && data.error) setError(data.error);
   }, []);
@@ -68,6 +94,39 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
     const t = setInterval(() => pollSession(sessionId), 3000);
     return () => clearInterval(t);
   }, [sessionId, step, pollSession]);
+
+  useEffect(() => {
+    if (step !== "generating_content" || !sessionId) return;
+    if (contentGenStarted.current) return;
+    contentGenStarted.current = true;
+
+    let cancelled = false;
+
+    async function runContentGeneration() {
+      setBusy(true);
+      setError("");
+      while (!cancelled) {
+        const result = await generateNextBlueprintItem(sessionId!);
+        if (result.error) {
+          setError(result.error);
+          break;
+        }
+        if (result.blueprint) setBlueprint(result.blueprint);
+        if (result.progress) setContentProgress(result.progress);
+        if (result.done) {
+          setStep("preview");
+          break;
+        }
+      }
+      setBusy(false);
+      contentGenStarted.current = false;
+    }
+
+    void runContentGeneration();
+    return () => {
+      cancelled = true;
+    };
+  }, [step, sessionId]);
 
   async function startSession() {
     setBusy(true);
@@ -87,17 +146,8 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
     setStep("sources");
   }
 
-  function requireNote(): boolean {
-    if (!sourceNote.trim()) {
-      setError("Add a note describing this source (what it is and how to use it).");
-      return false;
-    }
-    return true;
-  }
-
   async function postSource(fd: FormData) {
     if (!sessionId) return false;
-    fd.set("sourceNote", sourceNote.trim());
     const result = await uploadAiSource(sessionId, fd);
     if (result.error) {
       setError(result.error);
@@ -106,23 +156,42 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
     return true;
   }
 
-  async function handleUpload(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    if (!sessionId || !requireNote()) return;
-    const form = e.currentTarget;
-    const input = form.elements.namedItem("file") as HTMLInputElement | null;
-    const files = input?.files;
-    if (!files?.length) {
-      setError("Choose at least one file.");
+  function onFilesSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const list = e.target.files;
+    if (!list?.length) return;
+    const added: PendingFile[] = [];
+    for (let i = 0; i < list.length; i++) {
+      added.push({
+        id: `${Date.now()}-${i}-${list[i].name}`,
+        file: list[i],
+        note: "",
+      });
+    }
+    setPendingFiles((prev) => [...prev, ...added]);
+    e.target.value = "";
+  }
+
+  function updatePendingNote(id: string, note: string) {
+    setPendingFiles((prev) =>
+      prev.map((p) => (p.id === id ? { ...p, note } : p)),
+    );
+  }
+
+  async function uploadPendingFiles() {
+    if (!sessionId || pendingFiles.length === 0) return;
+    const missing = pendingFiles.filter((p) => !p.note.trim());
+    if (missing.length) {
+      setError("Add a note for each file before uploading.");
       return;
     }
     setBusy(true);
     setError("");
     let ok = true;
-    for (let i = 0; i < files.length; i++) {
+    for (const p of pendingFiles) {
       const fd = new FormData();
-      fd.set("file", files[i]);
-      fd.set("includeRecording", includeRecording ? "true" : "false");
+      fd.set("file", p.file);
+      fd.set("sourceNote", p.note.trim());
+      fd.set("includeRecording", fileIncludeRecording ? "true" : "false");
       if (!(await postSource(fd))) {
         ok = false;
         break;
@@ -130,13 +199,17 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
     }
     setBusy(false);
     if (ok) {
-      form.reset();
+      setPendingFiles([]);
       await pollSession(sessionId);
     }
   }
 
   async function handleAddUrl() {
-    if (!sessionId || !requireNote()) return;
+    if (!sessionId) return;
+    if (!urlNote.trim()) {
+      setError("Add a note describing this link.");
+      return;
+    }
     if (!sourceUrl.trim()) {
       setError("Enter a URL.");
       return;
@@ -145,32 +218,40 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
     setError("");
     const fd = new FormData();
     fd.set("sourceUrl", sourceUrl.trim());
+    fd.set("sourceNote", urlNote.trim());
     fd.set("urlKind", urlKind);
-    fd.set("includeRecording", includeRecording ? "true" : "false");
+    fd.set("includeRecording", urlIncludeRecording ? "true" : "false");
     const ok = await postSource(fd);
     setBusy(false);
     if (ok) {
       setSourceUrl("");
+      setUrlNote("");
       await pollSession(sessionId);
     }
   }
 
   async function handlePasteText() {
-    if (!sessionId || !requireNote()) return;
-    if (!pastedText.trim()) {
+    if (!sessionId) return;
+    if (!pasteNote.trim()) {
+      setError("Add a note describing this pasted text.");
+      return;
+    }
+    if (!pasteText.trim()) {
       setError("Paste some text to add as a source.");
       return;
     }
     setBusy(true);
     setError("");
     const fd = new FormData();
-    fd.set("pastedText", pastedText.trim());
-    if (pastedTitle.trim()) fd.set("pastedTitle", pastedTitle.trim());
+    fd.set("pastedText", pasteText.trim());
+    fd.set("sourceNote", pasteNote.trim());
+    if (pasteTitle.trim()) fd.set("pastedTitle", pasteTitle.trim());
     const ok = await postSource(fd);
     setBusy(false);
     if (ok) {
-      setPastedText("");
-      setPastedTitle("");
+      setPasteText("");
+      setPasteTitle("");
+      setPasteNote("");
       await pollSession(sessionId);
     }
   }
@@ -190,12 +271,12 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
     setStep("generate");
   }
 
-  async function runGenerate() {
+  async function runGenerateStructure() {
     if (!sessionId) return;
     setBusy(true);
     setError("");
     await updateAiSessionPrompt(sessionId, userPrompt);
-    const result = await generateCourseBlueprint(sessionId);
+    const result = await generateCourseStructure(sessionId);
     setBusy(false);
     if (result.error) {
       setError(result.error);
@@ -203,7 +284,28 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
     }
     if (result.blueprint) setBlueprint(result.blueprint);
     if (result.issues) setIssues(result.issues);
-    setStep("preview");
+    setStep("structure_preview");
+  }
+
+  async function runApproveAndGenerateContent() {
+    if (!sessionId) return;
+    setBusy(true);
+    setError("");
+    const approve = await approveStructureAndGenerateContent(sessionId);
+    if (approve.error) {
+      setBusy(false);
+      setError(approve.error);
+      return;
+    }
+    setBusy(false);
+    contentGenStarted.current = false;
+    setContentProgress({ current: 0, total: flattenTotal(blueprint) });
+    setStep("generating_content");
+  }
+
+  function flattenTotal(bp: CourseBlueprint | null) {
+    if (!bp) return 0;
+    return bp.modules.reduce((n, m) => n + m.items.length, 0);
   }
 
   async function runApply() {
@@ -244,21 +346,38 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
     { id: "intent", label: "Intent" },
     { id: "sources", label: "Sources" },
     { id: "processing", label: "Process" },
-    { id: "generate", label: "Generate" },
+    { id: "generate", label: "Structure" },
+    { id: "structure_preview", label: "Review structure" },
+    { id: "generating_content", label: "Write content" },
     { id: "preview", label: "Preview" },
   ];
 
+  const showSpinner =
+    busy ||
+    step === "processing" ||
+    step === "generating_content";
+
   return (
-    <div className="max-w-5xl space-y-6">
+    <div className="relative max-w-5xl space-y-6">
+      {showSpinner && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-white/80">
+          <AiLoadingSpinner
+            label={
+              step === "processing"
+                ? "Processing sources…"
+                : step === "generating_content" && contentProgress
+                  ? `Writing content (${contentProgress.current} of ${contentProgress.total})${contentProgress.label ? `: ${contentProgress.label}` : ""}`
+                  : "AI is working…"
+            }
+          />
+        </div>
+      )}
+
       <div className="rounded-xl border border-storm-light-blue/50 bg-white p-4 sm:p-6">
         <h2 className="font-title text-lg font-semibold text-storm-navy">AI Studio</h2>
         <p className="mt-1 text-sm text-storm-navy/70">
-          Upload training materials or describe what you need. AI drafts a course
-          blueprint you can preview before adding it to the curriculum.
-        </p>
-        <p className="mt-3 rounded-lg bg-storm-light-grey/40 px-3 py-2 text-sm text-storm-navy/70">
-          Requires <code className="text-xs">OPENAI_API_KEY</code> on the server for
-          generation and transcription.
+          Add sources with notes, generate the course outline first, then generate
+          full content for each lesson, video, and quiz one at a time.
         </p>
       </div>
 
@@ -267,7 +386,7 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
           <span
             key={s.id}
             className={`rounded-full px-3 py-1 text-xs font-medium ${
-              step === s.id || (step === "actions" && s.id === "preview")
+              step === s.id
                 ? "bg-storm-medium-blue text-white"
                 : "bg-storm-light-grey/60 text-storm-navy/70"
             }`}
@@ -350,65 +469,81 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
       {step === "sources" && sessionId && (
         <div className="space-y-6 rounded-xl border bg-white p-4 sm:p-6">
           <p className="text-sm text-storm-navy/70">
-            For every source, add the material and a short note so the AI knows what it
-            is and how to use it (e.g. module intro, reference only, include in quiz).
+            Add as many sources as you need. Each file, link, or pasted text must
+            include its own note.
           </p>
 
-          <label className="block text-sm">
-            <span className="font-medium text-storm-navy">
-              Note about your next source <span className="text-red-600">*</span>
-            </span>
-            <textarea
-              value={sourceNote}
-              onChange={(e) => setSourceNote(e.target.value)}
-              rows={2}
-              placeholder="What is this and how should it be used in the course?"
-              className="mt-1 w-full rounded-lg border border-storm-light-blue/60 px-3 py-2"
-            />
-          </label>
-
           <section className="space-y-3 rounded-lg border border-storm-light-blue/40 p-4">
-            <h3 className="text-sm font-medium text-storm-navy">Upload files</h3>
+            <h3 className="text-sm font-medium text-storm-navy">Files</h3>
             <p className="text-xs text-storm-navy/60">
-              PDF, PowerPoint, audio, video, images, or text files
+              Select one or more files, add a note for each, then upload.
             </p>
-            <form onSubmit={handleUpload} className="space-y-3">
+            <input
+              type="file"
+              multiple
+              accept=".pdf,.pptx,.ppt,.mp3,.wav,.m4a,.mp4,.mov,.webm,.png,.jpg,.jpeg,.txt,.md"
+              onChange={onFilesSelected}
+              className="block w-full text-sm"
+            />
+            {pendingFiles.length > 0 && (
+              <ul className="space-y-3">
+                {pendingFiles.map((p) => (
+                  <li
+                    key={p.id}
+                    className="rounded-lg border border-storm-light-blue/40 p-3"
+                  >
+                    <p className="text-sm font-medium text-storm-navy">{p.file.name}</p>
+                    <textarea
+                      value={p.note}
+                      onChange={(e) => updatePendingNote(p.id, e.target.value)}
+                      rows={2}
+                      placeholder="Note for this file (required)"
+                      className="mt-2 w-full rounded-lg border px-3 py-2 text-sm"
+                    />
+                    <button
+                      type="button"
+                      className="mt-2 text-xs text-red-600"
+                      onClick={() =>
+                        setPendingFiles((prev) => prev.filter((x) => x.id !== p.id))
+                      }
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <label className="flex items-center gap-2 text-sm">
               <input
-                type="file"
-                name="file"
-                multiple
-                accept=".pdf,.pptx,.ppt,.mp3,.wav,.m4a,.mp4,.mov,.webm,.png,.jpg,.jpeg,.txt,.md"
-                className="block w-full text-sm"
+                type="checkbox"
+                checked={fileIncludeRecording}
+                onChange={(e) => setFileIncludeRecording(e.target.checked)}
               />
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={includeRecording}
-                  onChange={(e) => setIncludeRecording(e.target.checked)}
-                />
-                For uploaded videos: include recording in course (uncheck for transcript
-                only)
-              </label>
-              <button
-                type="submit"
-                disabled={busy}
-                className="min-h-10 rounded-lg border px-4 text-sm font-medium"
-              >
-                Add file(s)
-              </button>
-            </form>
+              For video files: include recording in course
+            </label>
+            <button
+              type="button"
+              disabled={busy || pendingFiles.length === 0}
+              onClick={uploadPendingFiles}
+              className="min-h-10 rounded-lg border px-4 text-sm font-medium"
+            >
+              Upload {pendingFiles.length > 0 ? `${pendingFiles.length} file(s)` : ""}
+            </button>
           </section>
 
           <section className="space-y-3 rounded-lg border border-storm-light-blue/40 p-4">
             <h3 className="text-sm font-medium text-storm-navy">Link</h3>
-            <p className="text-xs text-storm-navy/60">
-              Web articles, documentation, or video URLs (e.g. YouTube)
-            </p>
+            <textarea
+              value={urlNote}
+              onChange={(e) => setUrlNote(e.target.value)}
+              rows={2}
+              placeholder="Note for this link (required)"
+              className="w-full rounded-lg border px-3 py-2 text-sm"
+            />
             <div className="flex flex-wrap gap-3 text-sm">
               <label className="flex items-center gap-2">
                 <input
                   type="radio"
-                  name="urlKind"
                   checked={urlKind === "webpage"}
                   onChange={() => setUrlKind("webpage")}
                 />
@@ -417,7 +552,6 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
               <label className="flex items-center gap-2">
                 <input
                   type="radio"
-                  name="urlKind"
                   checked={urlKind === "video"}
                   onChange={() => setUrlKind("video")}
                 />
@@ -435,16 +569,16 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
               <label className="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"
-                  checked={includeRecording}
-                  onChange={(e) => setIncludeRecording(e.target.checked)}
+                  checked={urlIncludeRecording}
+                  onChange={(e) => setUrlIncludeRecording(e.target.checked)}
                 />
-                Include video in course (uncheck to use transcript/context only)
+                Include video in course
               </label>
             )}
             <button
               type="button"
               onClick={handleAddUrl}
-              disabled={busy || !sourceUrl.trim()}
+              disabled={busy}
               className="min-h-10 rounded-lg border px-4 text-sm font-medium"
             >
               Add link
@@ -453,24 +587,31 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
 
           <section className="space-y-3 rounded-lg border border-storm-light-blue/40 p-4">
             <h3 className="text-sm font-medium text-storm-navy">Paste text</h3>
+            <textarea
+              value={pasteNote}
+              onChange={(e) => setPasteNote(e.target.value)}
+              rows={2}
+              placeholder="Note for this text (required)"
+              className="w-full rounded-lg border px-3 py-2 text-sm"
+            />
             <input
               type="text"
               placeholder="Title (optional)"
-              value={pastedTitle}
-              onChange={(e) => setPastedTitle(e.target.value)}
+              value={pasteTitle}
+              onChange={(e) => setPasteTitle(e.target.value)}
               className="min-h-10 w-full rounded-lg border px-3 text-sm"
             />
             <textarea
-              value={pastedText}
-              onChange={(e) => setPastedText(e.target.value)}
+              value={pasteText}
+              onChange={(e) => setPasteText(e.target.value)}
               rows={6}
-              placeholder="Paste notes, procedures, email copy, etc."
+              placeholder="Paste notes, procedures, etc."
               className="w-full rounded-lg border px-3 py-2 text-sm"
             />
             <button
               type="button"
               onClick={handlePasteText}
-              disabled={busy || !pastedText.trim()}
+              disabled={busy}
               className="min-h-10 rounded-lg border px-4 text-sm font-medium"
             >
               Add pasted text
@@ -498,9 +639,6 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
                       <p className="mt-0.5 truncate text-xs text-storm-navy/50">
                         {a.blobUrl}
                       </p>
-                    )}
-                    {a.processingError && (
-                      <p className="mt-1 text-red-600">{a.processingError}</p>
                     )}
                   </div>
                   <button
@@ -536,25 +674,27 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
             </button>
             <button
               type="button"
-              onClick={() => {
-                setStep("generate");
-              }}
+              onClick={() => setStep("generate")}
               className="min-h-10 rounded-lg border px-4 text-sm text-storm-navy/70"
             >
-              Skip processing (text prompt only)
+              Skip processing
             </button>
           </div>
         </div>
       )}
 
       {step === "processing" && (
-        <div className="rounded-xl border bg-white p-6 text-center text-sm text-storm-navy/70">
-          Extracting text and transcribing media… This may take a few minutes.
+        <div className="rounded-xl border bg-white p-4">
+          <AiLoadingSpinner label="Extracting text and transcribing media…" />
         </div>
       )}
 
       {step === "generate" && sessionId && (
         <div className="space-y-4 rounded-xl border bg-white p-4 sm:p-6">
+          <p className="text-sm text-storm-navy/70">
+            Step 1: AI creates modules and items with titles and outlines only — no
+            full lesson or quiz content yet.
+          </p>
           <label className="block text-sm">
             <span className="font-medium">Refine instructions</span>
             <textarea
@@ -567,11 +707,64 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
           <button
             type="button"
             disabled={busy}
-            onClick={runGenerate}
+            onClick={runGenerateStructure}
             className="min-h-11 rounded-lg bg-storm-medium-blue px-6 text-sm font-medium text-white"
           >
-            Generate blueprint
+            Generate course structure
           </button>
+        </div>
+      )}
+
+      {step === "structure_preview" && blueprint && (
+        <div className="space-y-4">
+          <p className="text-sm text-storm-navy/70">
+            Review the outline below. When you approve, AI will write each item&apos;s
+            full content one at a time.
+          </p>
+          <BlueprintPreview
+            blueprint={blueprint}
+            issues={issues}
+            structureOnly
+            selectedModule={selectedModule}
+            selectedItem={selectedItem}
+            onSelectModule={(mi) => {
+              setSelectedModule(mi);
+              setSelectedItem(null);
+            }}
+            onSelectItem={(mi, ii) => {
+              setSelectedModule(mi);
+              setSelectedItem(ii);
+            }}
+          />
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={runApproveAndGenerateContent}
+              className="min-h-11 rounded-lg bg-storm-medium-blue px-6 text-sm font-medium text-white"
+            >
+              Approve structure & generate content
+            </button>
+            <button
+              type="button"
+              onClick={() => setStep("generate")}
+              className="min-h-11 rounded-lg border px-4 text-sm"
+            >
+              Regenerate structure
+            </button>
+          </div>
+        </div>
+      )}
+
+      {step === "generating_content" && (
+        <div className="rounded-xl border bg-white p-4">
+          <AiLoadingSpinner
+            label={
+              contentProgress
+                ? `Writing item ${contentProgress.current} of ${contentProgress.total}${contentProgress.label ? ` — ${contentProgress.label}` : ""}`
+                : "Generating content…"
+            }
+          />
         </div>
       )}
 
@@ -621,13 +814,6 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
               className="min-h-11 rounded-lg bg-storm-medium-blue px-6 text-sm font-medium text-white disabled:opacity-50"
             >
               Apply to course
-            </button>
-            <button
-              type="button"
-              onClick={() => setStep("generate")}
-              className="min-h-11 rounded-lg border px-4 text-sm"
-            >
-              Regenerate
             </button>
           </div>
         </div>

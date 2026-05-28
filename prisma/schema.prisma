@@ -182,6 +182,8 @@ enum AiSessionStatus {
   collecting
   processing
   generating
+  structure_ready
+  generating_content
   ready
   applied
   failed
@@ -212,11 +214,14 @@ model AiGenerationSession {
   mode           AiGenerationMode
   targetModuleId String?
   status         AiSessionStatus   @default(collecting)
-  userPrompt     String?           @db.Text
-  blueprintJson  Json?
-  error          String?           @db.Text
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
+  userPrompt          String?           @db.Text
+  blueprintJson       Json?
+  generationMessages  Json?
+  contentItemCursor   Int               @default(0)
+  structureApproved   Boolean           @default(false)
+  error               String?           @db.Text
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
 
   course    Course          @relation(fields: [courseId], references: [id], onDelete: Cascade)
   createdBy User            @relation(fields: [createdById], references: [id], onDelete: Cascade)
