@@ -14,11 +14,18 @@ import {
   processAiSession,
   reworkBlueprintSectionAction,
   updateAiSessionPrompt,
+  updateAiSessionAllowedItemTypes,
   uploadAiSource,
   deleteAiSourceAsset,
 } from "@/lib/actions/ai-builder";
+import {
+  DEFAULT_ALLOWED_ITEM_TYPES,
+  parseAllowedItemTypes,
+  type BlueprintItemType,
+} from "@/lib/ai/allowed-item-types";
 import { BlueprintPreview } from "../ai/BlueprintPreview";
 import { AiLoadingSpinner } from "../ai/AiLoadingSpinner";
+import { ItemTypePicker } from "../ai/ItemTypePicker";
 
 type WizardStep =
   | "intent"
@@ -41,6 +48,9 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
   const [mode, setMode] = useState<"course" | "module" | "lesson">("course");
   const [targetModuleId, setTargetModuleId] = useState("");
   const [userPrompt, setUserPrompt] = useState("");
+  const [allowedItemTypes, setAllowedItemTypes] = useState<BlueprintItemType[]>([
+    ...DEFAULT_ALLOWED_ITEM_TYPES,
+  ]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [assets, setAssets] = useState<
     {
@@ -81,6 +91,9 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
     if (!res.ok) return;
     const data = await res.json();
     setAssets(data.assets ?? []);
+    if (data.allowedItemTypes) {
+      setAllowedItemTypes(parseAllowedItemTypes(data.allowedItemTypes));
+    }
     if (data.blueprintJson) {
       setBlueprint(data.blueprintJson as CourseBlueprint);
     }
@@ -129,12 +142,17 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
   }, [step, sessionId]);
 
   async function startSession() {
+    if (allowedItemTypes.length === 0) {
+      setError("Select at least one content type.");
+      return;
+    }
     setBusy(true);
     setError("");
     const result = await createAiSession(course.id, mode, {
       targetModuleId:
         mode !== "course" && targetModuleId ? targetModuleId : undefined,
       userPrompt,
+      allowedItemTypes,
     });
     setBusy(false);
     if (!result.session) {
@@ -273,9 +291,22 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
 
   async function runGenerateStructure() {
     if (!sessionId) return;
+    if (allowedItemTypes.length === 0) {
+      setError("Select at least one content type.");
+      return;
+    }
     setBusy(true);
     setError("");
     await updateAiSessionPrompt(sessionId, userPrompt);
+    const typesResult = await updateAiSessionAllowedItemTypes(
+      sessionId,
+      allowedItemTypes,
+    );
+    if (typesResult.error) {
+      setBusy(false);
+      setError(typesResult.error);
+      return;
+    }
     const result = await generateCourseStructure(sessionId);
     setBusy(false);
     if (result.error) {
@@ -444,6 +475,8 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
             </label>
           )}
 
+          <ItemTypePicker value={allowedItemTypes} onChange={setAllowedItemTypes} />
+
           <label className="block text-sm">
             <span className="font-medium text-storm-navy">Instructions (optional)</span>
             <textarea
@@ -457,7 +490,11 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
 
           <button
             type="button"
-            disabled={busy || (mode !== "course" && !targetModuleId)}
+            disabled={
+              busy ||
+              allowedItemTypes.length === 0 ||
+              (mode !== "course" && !targetModuleId)
+            }
             onClick={startSession}
             className="min-h-11 rounded-lg bg-storm-medium-blue px-6 text-sm font-medium text-white disabled:opacity-50"
           >
@@ -695,6 +732,7 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
             Step 1: AI creates modules and items with titles and outlines only — no
             full lesson or quiz content yet.
           </p>
+          <ItemTypePicker value={allowedItemTypes} onChange={setAllowedItemTypes} />
           <label className="block text-sm">
             <span className="font-medium">Refine instructions</span>
             <textarea
@@ -706,9 +744,9 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
           </label>
           <button
             type="button"
-            disabled={busy}
+            disabled={busy || allowedItemTypes.length === 0}
             onClick={runGenerateStructure}
-            className="min-h-11 rounded-lg bg-storm-medium-blue px-6 text-sm font-medium text-white"
+            className="min-h-11 rounded-lg bg-storm-medium-blue px-6 text-sm font-medium text-white disabled:opacity-50"
           >
             Generate course structure
           </button>

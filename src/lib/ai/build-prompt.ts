@@ -1,5 +1,9 @@
 import type { AiGenerationMode, AiSourceAsset } from "@prisma/client";
 import type { CourseBlueprint } from "./blueprint-schema";
+import {
+  type BlueprintItemType,
+  formatAllowedTypesForPrompt,
+} from "./allowed-item-types";
 
 const MAX_CHARS_PER_ASSET = 12_000;
 const MAX_TOTAL_CONTEXT = 80_000;
@@ -34,9 +38,17 @@ export function buildGenerationMessages(options: {
   courseDescription?: string | null;
   targetModuleTitle?: string;
   assets: AiSourceAsset[];
+  allowedItemTypes: BlueprintItemType[];
 }) {
-  const { mode, userPrompt, courseTitle, courseDescription, targetModuleTitle, assets } =
-    options;
+  const {
+    mode,
+    userPrompt,
+    courseTitle,
+    courseDescription,
+    targetModuleTitle,
+    assets,
+    allowedItemTypes,
+  } = options;
 
   const assetBlocks: string[] = [];
   let total = 0;
@@ -66,12 +78,14 @@ export function buildGenerationMessages(options: {
     );
   }
 
+  const allowedBlock = `ALLOWED ITEM TYPES (use ONLY these — do not add other types): ${formatAllowedTypesForPrompt(allowedItemTypes)}.`;
+
   const modeInstructions =
     mode === "course"
-      ? "Generate a full course with multiple modules and varied items (lessons, videos, quizzes)."
+      ? "Generate a full course with multiple modules using only the allowed item types."
       : mode === "module"
         ? `Generate exactly one new module${targetModuleTitle ? ` (context: "${targetModuleTitle}")` : ""} with items. Set mode to "module".`
-        : `Generate lesson content as a single module with item(s) only. Set mode to "lesson". Target module: ${targetModuleTitle ?? "existing module"}.`;
+        : `Generate item(s) in a single module. Set mode to "lesson". Target module: ${targetModuleTitle ?? "existing module"}.`;
 
   const system = `You are an instructional designer building training for a field-service / irrigation company.
 Output ONLY valid JSON matching the CourseBlueprint schema (version "1.0").
@@ -82,6 +96,7 @@ Prefer practical, safety-aware training content. HTML in lesson.bodyHtml should 
   const user = [
     `Course: ${courseTitle}`,
     courseDescription ? `Description: ${courseDescription}` : "",
+    allowedBlock,
     modeInstructions,
     userPrompt ? `Author instructions:\n${userPrompt}` : "",
     assetBlocks.length ? `Source materials:\n\n${assetBlocks.join("\n\n")}` : "",
@@ -100,12 +115,14 @@ export function buildStructureGenerationMessages(options: {
   courseDescription?: string | null;
   targetModuleTitle?: string;
   assets: AiSourceAsset[];
+  allowedItemTypes: BlueprintItemType[];
 }) {
   const base = buildGenerationMessages(options);
   const system = `${base.system}
 
 PHASE 1 — STRUCTURE ONLY:
 - Output modules and items with type, title, and outline (1-3 sentences per item describing what the item will teach).
+- Every item.type MUST be one of the allowed types listed in the user message.
 - Do NOT include lesson.bodyHtml, exam.questions, video transcripts, or other full content.
 - Do NOT include sourceAssets[] in JSON.
 - Link relevant uploads via linkedSourceAssetRefs (asset id strings) when applicable.`;
@@ -117,11 +134,30 @@ Return structure JSON only: each item must have "outline" and must NOT have less
   return { system, user };
 }
 
+function contentInstructionsForType(type: BlueprintItemType): string {
+  switch (type) {
+    case "LESSON":
+      return "LESSON: rich bodyHtml (multiple sections, lists, practical steps).";
+    case "VIDEO":
+      return "VIDEO: sourceAssetRef and/or youtubeUrl, transcript summary if no recording.";
+    case "QUIZ":
+    case "EXAM":
+      return "EXAM/QUIZ: at least 5 questions with options where applicable.";
+    case "SCENARIO":
+      return "SCENARIO: detailed prompt and backgroundInfo.";
+    case "SKILL_CHECK":
+      return "SKILL_CHECK: traineeInstructions, evaluatorInstructions, and steps[] checklist (text, isRequired, points).";
+    default:
+      return "";
+  }
+}
+
 export function buildItemContentUserMessage(options: {
   blueprint: CourseBlueprint;
   moduleIndex: number;
   itemIndex: number;
   assets: AiSourceAsset[];
+  allowedItemTypes: BlueprintItemType[];
 }) {
   const { blueprint, moduleIndex, itemIndex, assets } = options;
   const mod = blueprint.modules[moduleIndex];
@@ -144,11 +180,10 @@ export function buildItemContentUserMessage(options: {
     assetNotes ? `Linked sources:\n${assetNotes}` : "",
     `Return JSON: { "item": { ...complete item with ${item.type} content filled in... } }`,
     `Keep type, title, outline, track, and linkedSourceAssetRefs unless you must adjust them.`,
-    `LESSON: rich bodyHtml (multiple sections, lists, practical steps).`,
-    `VIDEO: sourceAssetRef and/or youtubeUrl, transcript summary if no recording.`,
-    `EXAM/QUIZ: at least 5 questions with options where applicable.`,
-    `SCENARIO: detailed prompt and backgroundInfo.`,
-    `SKILL_CHECK: keep outline only; add scenario stub prompt if helpful.`,
+    contentInstructionsForType(item.type as BlueprintItemType),
+    options.allowedItemTypes.includes(item.type as BlueprintItemType)
+      ? ""
+      : `WARNING: type ${item.type} was not in allowed list; still generate valid content for this type.`,
   ]
     .filter(Boolean)
     .join("\n\n");

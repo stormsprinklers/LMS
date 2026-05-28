@@ -22,6 +22,12 @@ import { isYouTubeUrl } from "@/lib/video/youtube";
 import { flattenBlueprintItems } from "@/lib/ai/blueprint-items";
 import { generateItemContent } from "@/lib/ai/generate-item-content";
 import { parseGenerationMessages } from "@/lib/ai/generation-thread";
+import {
+  parseAllowedItemTypes,
+  filterStructureByAllowedTypes,
+  filterBlueprintByAllowedTypes,
+  type BlueprintItemType,
+} from "@/lib/ai/allowed-item-types";
 
 const MAX_FILE_BYTES = 80 * 1024 * 1024;
 const MAX_ASSETS_PER_SESSION = 20;
@@ -66,12 +72,24 @@ async function loadSessionAssets(sessionId: string) {
   });
 }
 
+function sessionAllowedTypes(raw: unknown): BlueprintItemType[] {
+  return parseAllowedItemTypes(raw);
+}
+
 export async function createAiSession(
   courseId: string,
   mode: AiGenerationMode,
-  options?: { targetModuleId?: string; userPrompt?: string },
+  options?: {
+    targetModuleId?: string;
+    userPrompt?: string;
+    allowedItemTypes?: BlueprintItemType[];
+  },
 ) {
   const session = await requireManageCourse(courseId);
+  const allowed = options?.allowedItemTypes?.length
+    ? options.allowedItemTypes
+    : parseAllowedItemTypes(null);
+
   const aiSession = await prisma.aiGenerationSession.create({
     data: {
       courseId,
@@ -79,12 +97,33 @@ export async function createAiSession(
       mode,
       targetModuleId: options?.targetModuleId ?? null,
       userPrompt: options?.userPrompt?.trim() || null,
+      allowedItemTypes: allowed,
       status: "collecting",
     },
     include: { assets: { orderBy: { sortOrder: "asc" } } },
   });
   revalidatePath(`/admin/courses/${courseId}/builder`);
   return { session: aiSession };
+}
+
+export async function updateAiSessionAllowedItemTypes(
+  sessionId: string,
+  allowedItemTypes: BlueprintItemType[],
+) {
+  if (allowedItemTypes.length === 0) {
+    return { error: "Select at least one item type." };
+  }
+  const row = await prisma.aiGenerationSession.findUnique({
+    where: { id: sessionId },
+    select: { courseId: true },
+  });
+  if (!row) return { error: "Session not found." };
+  await requireManageCourse(row.courseId);
+  await prisma.aiGenerationSession.update({
+    where: { id: sessionId },
+    data: { allowedItemTypes },
+  });
+  return { success: true as const };
 }
 
 export async function getAiSession(sessionId: string) {
@@ -325,6 +364,8 @@ export async function generateCourseStructure(sessionId: string) {
     },
   });
 
+  const allowed = sessionAllowedTypes(aiSession.allowedItemTypes);
+
   try {
     const { system, user } = buildStructureGenerationMessages({
       mode: aiSession.mode,
@@ -333,6 +374,7 @@ export async function generateCourseStructure(sessionId: string) {
       courseDescription: aiSession.course.description,
       targetModuleTitle,
       assets: aiSession.assets,
+      allowedItemTypes: allowed,
     });
 
     const completion = await openai.chat.completions.create({
@@ -354,9 +396,18 @@ export async function generateCourseStructure(sessionId: string) {
     const raw = completion.choices[0]?.message?.content;
     if (!raw) throw new Error("No response from AI.");
 
-    const structure = parseStructureFromLlm(JSON.parse(raw));
+    let structure = parseStructureFromLlm(JSON.parse(raw));
+    structure = filterStructureByAllowedTypes(structure, allowed);
+    if (structure.modules.every((m) => m.items.length === 0)) {
+      throw new Error(
+        "Structure has no items for your selected types. Adjust item types or instructions and try again.",
+      );
+    }
     const skeleton = structureToBlueprint(structure);
-    const enriched = enrichBlueprintWithAssets(skeleton, aiSession.assets);
+    const enriched = enrichBlueprintWithAssets(
+      filterBlueprintByAllowedTypes(skeleton, allowed),
+      aiSession.assets,
+    );
     const validation = validateStructureBlueprint(structure);
 
     await prisma.aiGenerationSession.update({
@@ -405,9 +456,13 @@ export async function generateNextBlueprintItem(sessionId: string) {
     return { error: "Approve the structure before generating content." };
   }
 
-  const blueprint = enrichBlueprintWithAssets(
-    courseBlueprintSchema.parse(aiSession.blueprintJson),
-    aiSession.assets,
+  const allowed = sessionAllowedTypes(aiSession.allowedItemTypes);
+  const blueprint = filterBlueprintByAllowedTypes(
+    enrichBlueprintWithAssets(
+      courseBlueprintSchema.parse(aiSession.blueprintJson),
+      aiSession.assets,
+    ),
+    allowed,
   );
   const flat = flattenBlueprintItems(blueprint);
   const cursor = aiSession.contentItemCursor;
@@ -435,6 +490,7 @@ export async function generateNextBlueprintItem(sessionId: string) {
       assets: aiSession.assets,
       thread,
       userPrompt: aiSession.userPrompt ?? "",
+      allowedItemTypes: allowed,
     });
 
     const nextBlueprint: CourseBlueprint = {

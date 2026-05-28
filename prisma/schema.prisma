@@ -219,6 +219,7 @@ model AiGenerationSession {
   generationMessages  Json?
   contentItemCursor   Int               @default(0)
   structureApproved   Boolean           @default(false)
+  allowedItemTypes    Json              @default("[\"LESSON\",\"VIDEO\",\"QUIZ\",\"EXAM\",\"SCENARIO\",\"SKILL_CHECK\"]")
   error               String?           @db.Text
   createdAt           DateTime          @default(now())
   updatedAt           DateTime          @updatedAt

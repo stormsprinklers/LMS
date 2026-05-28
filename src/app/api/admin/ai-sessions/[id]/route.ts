@@ -26,6 +26,7 @@ export async function GET(
     status: session.status,
     mode: session.mode,
     error: session.error,
+    allowedItemTypes: session.allowedItemTypes,
     blueprintJson: session.blueprintJson,
     assets: session.assets.map((a) => ({
       id: a.id,

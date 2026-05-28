@@ -4,6 +4,10 @@ import { blueprintItemSchema } from "./blueprint-schema";
 import { buildItemContentUserMessage } from "./build-prompt";
 import type { GenerationChatMessage } from "./generation-thread";
 import { AI_GENERATION_MODEL, requireOpenAI } from "./openai-client";
+import {
+  type BlueprintItemType,
+  formatAllowedTypesForPrompt,
+} from "./allowed-item-types";
 
 const itemContentJsonSchema = {
   type: "object",
@@ -36,12 +40,14 @@ export async function generateItemContent(options: {
   assets: AiSourceAsset[];
   thread: GenerationChatMessage[];
   userPrompt: string;
+  allowedItemTypes: BlueprintItemType[];
 }): Promise<{
   item: BlueprintItem;
   thread: GenerationChatMessage[];
 }> {
   const openai = requireOpenAI();
-  const { blueprint, moduleIndex, itemIndex, assets, userPrompt } = options;
+  const { blueprint, moduleIndex, itemIndex, assets, userPrompt, allowedItemTypes } =
+    options;
 
   let thread = [...options.thread];
   if (thread.length === 0) {
@@ -50,6 +56,7 @@ export async function generateItemContent(options: {
         role: "system",
         content: `You are an instructional designer writing one section of a training course at a time.
 Output JSON with a single "item" object. Maintain consistency with the approved course structure and prior items in the conversation.
+Allowed item types for this course: ${formatAllowedTypesForPrompt(allowedItemTypes)}.
 Author instructions: ${userPrompt || "(none)"}`,
       },
       {
@@ -82,6 +89,7 @@ Author instructions: ${userPrompt || "(none)"}`,
     moduleIndex,
     itemIndex,
     assets,
+    allowedItemTypes,
   });
   thread.push({ role: "user", content: userMessage });
 
