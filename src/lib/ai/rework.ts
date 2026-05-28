@@ -1,4 +1,8 @@
-import { courseBlueprintSchema, type CourseBlueprint } from "./blueprint-schema";
+import {
+  courseBlueprintSchema,
+  normalizeLlmBlueprint,
+  type CourseBlueprint,
+} from "./blueprint-schema";
 import { buildReworkMessages } from "./build-prompt";
 import { AI_GENERATION_MODEL, requireOpenAI } from "./openai-client";
 import { courseBlueprintJsonSchema } from "./blueprint-schema";
@@ -44,7 +48,8 @@ export async function reworkBlueprintSection(
     return { error: "AI returned invalid JSON." };
   }
 
-  const next = courseBlueprintSchema.safeParse(parsed);
+  const normalized = normalizeLlmBlueprint(parsed);
+  const next = courseBlueprintSchema.safeParse(normalized);
   if (!next.success) {
     return { error: next.error.message };
   }

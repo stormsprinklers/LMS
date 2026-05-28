@@ -1,6 +1,8 @@
 import type { AiSourceAsset } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { AI_SUMMARY_MODEL, getOpenAIClient, requireOpenAI } from "./openai-client";
+import { fetchWebpageText } from "./fetch-webpage";
+import { isYouTubeUrl } from "@/lib/video/youtube";
 import Mux from "@mux/mux-node";
 
 const mux =
@@ -151,13 +153,50 @@ export async function processSourceAsset(assetId: string): Promise<void> {
     let transcript = asset.transcript;
     const updates: Record<string, unknown> = {};
 
-    if (asset.kind === "text" && asset.blobUrl) {
-      const res = await fetch(asset.blobUrl);
-      extractedText = await res.text();
-      updates.extractedText = extractedText;
-    } else if (asset.kind === "embed") {
-      extractedText = asset.placementHint ?? asset.blobUrl ?? "";
-      updates.extractedText = extractedText;
+    if (asset.kind === "text") {
+      if (asset.blobUrl) {
+        const res = await fetch(asset.blobUrl);
+        extractedText = await res.text();
+        updates.extractedText = extractedText;
+      } else if (asset.extractedText) {
+        extractedText = asset.extractedText;
+      }
+    } else if (asset.kind === "webpage" && asset.blobUrl) {
+      try {
+        extractedText = await fetchWebpageText(asset.blobUrl);
+        updates.extractedText = extractedText;
+      } catch (e) {
+        updates.processingError =
+          e instanceof Error ? e.message : "Could not fetch web page.";
+        extractedText = [
+          asset.placementHint ? `Note: ${asset.placementHint}` : "",
+          `URL: ${asset.blobUrl}`,
+        ]
+          .filter(Boolean)
+          .join("\n");
+        updates.extractedText = extractedText;
+      }
+    } else if (asset.kind === "embed" && asset.blobUrl) {
+      if (isYouTubeUrl(asset.blobUrl)) {
+        extractedText = [
+          asset.placementHint ? `Note: ${asset.placementHint}` : "",
+          `YouTube video: ${asset.blobUrl}`,
+        ]
+          .filter(Boolean)
+          .join("\n\n");
+        updates.extractedText = extractedText;
+      } else if (asset.blobUrl.startsWith("http")) {
+        try {
+          extractedText = await fetchWebpageText(asset.blobUrl);
+          updates.extractedText = extractedText;
+        } catch {
+          extractedText = asset.placementHint ?? asset.blobUrl;
+          updates.extractedText = extractedText;
+        }
+      } else {
+        extractedText = asset.placementHint ?? asset.blobUrl ?? "";
+        updates.extractedText = extractedText;
+      }
     } else if ((asset.kind === "pdf" || asset.kind === "pptx") && asset.blobUrl) {
       const res = await fetch(asset.blobUrl);
       const buf = Buffer.from(await res.arrayBuffer());
@@ -170,10 +209,20 @@ export async function processSourceAsset(assetId: string): Promise<void> {
       transcript = await transcribeAudio(buf, asset.filename ?? "audio.mp3");
       updates.transcript = transcript;
     } else if (asset.kind === "video") {
-      const videoUpdates = await processVideoAsset(asset);
-      Object.assign(updates, videoUpdates);
-      transcript = (videoUpdates.transcript as string) ?? transcript;
-      extractedText = transcript;
+      if (asset.blobUrl && isYouTubeUrl(asset.blobUrl)) {
+        extractedText = [
+          asset.placementHint ? `Note: ${asset.placementHint}` : "",
+          `YouTube video: ${asset.blobUrl}`,
+        ]
+          .filter(Boolean)
+          .join("\n\n");
+        updates.extractedText = extractedText;
+      } else {
+        const videoUpdates = await processVideoAsset(asset);
+        Object.assign(updates, videoUpdates);
+        transcript = (videoUpdates.transcript as string) ?? transcript;
+        extractedText = transcript ?? extractedText;
+      }
     } else if (asset.kind === "image") {
       extractedText = asset.placementHint ?? asset.filename ?? "Image asset";
       updates.extractedText = extractedText;

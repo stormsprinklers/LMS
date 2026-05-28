@@ -11,6 +11,7 @@ export const sourceAssetKindSchema = z.enum([
   "video",
   "image",
   "embed",
+  "webpage",
 ]);
 export const itemTypeSchema = z.enum([
   "LESSON",
@@ -252,11 +253,93 @@ export const courseBlueprintJsonSchema = {
         },
       },
     },
-    sourceAssets: { type: "array", items: { type: "object" } },
-    mediaPlacements: { type: "array", items: { type: "object" } },
   },
 } as const;
 
+const PLACEMENT_POSITIONS = new Set([
+  "intro",
+  "after_section",
+  "inline",
+  "item_end",
+] as const);
+
+/** Strip or fix LLM-only fields before Zod parse; source assets come from the DB. */
+export function normalizeLlmBlueprint(raw: unknown): unknown {
+  if (!raw || typeof raw !== "object") return raw;
+  const o = { ...(raw as Record<string, unknown>) };
+
+  delete o.sourceAssets;
+
+  if (Array.isArray(o.mediaPlacements)) {
+    const cleaned = o.mediaPlacements
+      .map((entry) => {
+        if (!entry || typeof entry !== "object") return null;
+        const p = entry as Record<string, unknown>;
+        const target =
+          p.target && typeof p.target === "object"
+            ? (p.target as Record<string, unknown>)
+            : null;
+        const assetRef = String(p.assetRef ?? p.id ?? "").trim();
+        if (!assetRef) return null;
+
+        let moduleIndex = p.moduleIndex ?? target?.moduleIndex;
+        if (typeof moduleIndex !== "number") moduleIndex = 0;
+
+        let itemIndex = p.itemIndex ?? target?.itemIndex;
+        if (typeof itemIndex !== "number") itemIndex = undefined;
+
+        const posRaw = String(p.position ?? "intro");
+        const position = PLACEMENT_POSITIONS.has(
+          posRaw as "intro" | "after_section" | "inline" | "item_end",
+        )
+          ? posRaw
+          : "intro";
+
+        return {
+          assetRef,
+          moduleIndex,
+          ...(itemIndex !== undefined ? { itemIndex } : {}),
+          position,
+          ...(typeof p.sectionHint === "string" ? { sectionHint: p.sectionHint } : {}),
+          ...(typeof p.caption === "string" ? { caption: p.caption } : {}),
+        };
+      })
+      .filter(Boolean);
+    o.mediaPlacements = cleaned.length > 0 ? cleaned : undefined;
+    if (!o.mediaPlacements) delete o.mediaPlacements;
+  }
+
+  if (Array.isArray(o.modules)) {
+    o.modules = o.modules.map((mod) => {
+      if (!mod || typeof mod !== "object") return mod;
+      const m = { ...(mod as Record<string, unknown>) };
+      if (Array.isArray(m.items)) {
+        m.items = m.items.map((item) => {
+          if (!item || typeof item !== "object") return item;
+          const it = { ...(item as Record<string, unknown>) };
+          if (it.type === "LESSON" && it.lesson && typeof it.lesson === "object") {
+            const lesson = { ...(it.lesson as Record<string, unknown>) };
+            if (typeof lesson.bodyHtml !== "string") {
+              lesson.bodyHtml = "<p></p>";
+            }
+            it.lesson = lesson;
+          }
+          return it;
+        });
+      }
+      return m;
+    });
+  }
+
+  if (o.version !== BLUEPRINT_VERSION) o.version = BLUEPRINT_VERSION;
+
+  return o;
+}
+
 export function parseCourseBlueprint(data: unknown): CourseBlueprint {
   return courseBlueprintSchema.parse(data);
+}
+
+export function parseCourseBlueprintFromLlm(data: unknown): CourseBlueprint {
+  return courseBlueprintSchema.parse(normalizeLlmBlueprint(data));
 }

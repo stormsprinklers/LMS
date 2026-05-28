@@ -31,6 +31,8 @@ export async function GET(
       id: a.id,
       kind: a.kind,
       filename: a.filename,
+      blobUrl: a.blobUrl,
+      placementHint: a.placementHint,
       processingStatus: a.processingStatus,
       processingError: a.processingError,
       includeRecording: a.includeRecording,

@@ -7,7 +7,7 @@ import { requireManageCourse } from "@/lib/auth-utils";
 import type { AiGenerationMode, AiSourceAssetKind } from "@prisma/client";
 import {
   courseBlueprintSchema,
-  parseCourseBlueprint,
+  parseCourseBlueprintFromLlm,
   courseBlueprintJsonSchema,
   type CourseBlueprint,
 } from "@/lib/ai/blueprint-schema";
@@ -17,6 +17,7 @@ import { processAllSessionAssets } from "@/lib/ai/process-sources";
 import { reworkBlueprintSection } from "@/lib/ai/rework";
 import { importCourseBlueprint } from "@/lib/ai/import-blueprint";
 import { AI_GENERATION_MODEL, requireOpenAI } from "@/lib/ai/openai-client";
+import { isYouTubeUrl } from "@/lib/video/youtube";
 
 const MAX_FILE_BYTES = 80 * 1024 * 1024;
 const MAX_ASSETS_PER_SESSION = 20;
@@ -109,6 +110,22 @@ export async function updateAiSessionPrompt(sessionId: string, userPrompt: strin
   return { success: true as const };
 }
 
+function readSourceNote(formData: FormData): string | null {
+  const note = String(
+    formData.get("sourceNote") ?? formData.get("placementHint") ?? "",
+  ).trim();
+  return note || null;
+}
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const u = new URL(value);
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 export async function uploadAiSource(
   sessionId: string,
   formData: FormData,
@@ -124,24 +141,61 @@ export async function uploadAiSource(
     return { error: `Maximum ${MAX_ASSETS_PER_SESSION} files per session.` };
   }
 
-  const file = formData.get("file");
-  const placementHint = String(formData.get("placementHint") ?? "").trim() || null;
-  const includeRecording = formData.get("includeRecording") !== "false";
-  const kindOverride = formData.get("kind");
+  const sourceNote = readSourceNote(formData);
+  if (!sourceNote) {
+    return {
+      error: "Add a note describing this source (what it is and how to use it).",
+    };
+  }
 
-  if (!(file instanceof File) || file.size === 0) {
-    const embedUrl = String(formData.get("embedUrl") ?? "").trim();
-    if (!embedUrl) return { error: "No file provided." };
+  const includeRecording = formData.get("includeRecording") !== "false";
+  const sortOrder = aiSession._count.assets;
+
+  const pastedText = String(formData.get("pastedText") ?? "").trim();
+  if (pastedText) {
+    const title =
+      String(formData.get("pastedTitle") ?? "").trim() || "Pasted text";
     const asset = await prisma.aiSourceAsset.create({
       data: {
         sessionId,
-        kind: "embed",
-        blobUrl: embedUrl,
-        placementHint,
+        kind: "text",
+        filename: title.slice(0, 120),
+        placementHint: sourceNote,
+        extractedText: pastedText,
         includeRecording: false,
-        extractedText: embedUrl,
         processingStatus: "ready",
-        sortOrder: aiSession._count.assets,
+        sortOrder,
+      },
+    });
+    return { asset: { id: asset.id } };
+  }
+
+  const sourceUrl = String(
+    formData.get("sourceUrl") ?? formData.get("embedUrl") ?? "",
+  ).trim();
+  const urlKind = String(formData.get("urlKind") ?? "webpage");
+
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) {
+    if (!sourceUrl) {
+      return { error: "Choose a file, paste text, or enter a URL." };
+    }
+    if (!isHttpUrl(sourceUrl)) {
+      return { error: "Enter a valid http(s) URL." };
+    }
+
+    const asVideo = urlKind === "video" || isYouTubeUrl(sourceUrl);
+    const asset = await prisma.aiSourceAsset.create({
+      data: {
+        sessionId,
+        kind: asVideo ? "video" : "webpage",
+        filename: asVideo ? "Video link" : "Web page",
+        blobUrl: sourceUrl,
+        placementHint: sourceNote,
+        includeRecording: asVideo ? includeRecording : false,
+        extractedText: asVideo && isYouTubeUrl(sourceUrl) ? sourceUrl : null,
+        processingStatus: "pending",
+        sortOrder,
       },
     });
     return { asset: { id: asset.id } };
@@ -151,10 +205,9 @@ export async function uploadAiSource(
     return { error: "File exceeds 80MB limit." };
   }
 
-  const kind =
-    kindOverride === "text"
-      ? "text"
-      : kindFromMime(file.type, file.name);
+  const kind = kindFromMime(file.type, file.name);
+  const textContent =
+    kind === "text" ? await file.text().catch(() => null) : null;
 
   const blob = await put(`ai-sources/${sessionId}/${Date.now()}-${file.name}`, file, {
     access: "public",
@@ -167,10 +220,12 @@ export async function uploadAiSource(
       filename: file.name,
       mimeType: file.type || null,
       blobUrl: blob.url,
-      placementHint,
-      includeRecording,
-      sortOrder: aiSession._count.assets,
-      processingStatus: kind === "image" ? "ready" : "pending",
+      placementHint: sourceNote,
+      includeRecording: kind === "video" ? includeRecording : false,
+      sortOrder,
+      processingStatus:
+        kind === "image" || (kind === "text" && textContent) ? "ready" : "pending",
+      ...(textContent ? { extractedText: textContent } : {}),
     },
   });
 
@@ -285,7 +340,7 @@ export async function generateCourseBlueprint(sessionId: string) {
       throw new Error("No response from AI.");
     }
 
-    const parsed = parseCourseBlueprint(JSON.parse(raw));
+    const parsed = parseCourseBlueprintFromLlm(JSON.parse(raw));
     const enriched = enrichBlueprintWithAssets(parsed, aiSession.assets);
     const validation = validateBlueprint(enriched);
 

@@ -33,11 +33,16 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
       filename: string | null;
       processingStatus: string;
       processingError: string | null;
+      placementHint: string | null;
+      blobUrl: string | null;
     }[]
   >([]);
-  const [placementHint, setPlacementHint] = useState("");
+  const [sourceNote, setSourceNote] = useState("");
   const [includeRecording, setIncludeRecording] = useState(true);
-  const [embedUrl, setEmbedUrl] = useState("");
+  const [sourceUrl, setSourceUrl] = useState("");
+  const [urlKind, setUrlKind] = useState<"webpage" | "video">("webpage");
+  const [pastedTitle, setPastedTitle] = useState("");
+  const [pastedText, setPastedText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [blueprint, setBlueprint] = useState<CourseBlueprint | null>(null);
@@ -82,40 +87,92 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
     setStep("sources");
   }
 
-  async function handleUpload(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    if (!sessionId) return;
-    const form = e.currentTarget;
-    const fd = new FormData(form);
-    if (placementHint) fd.set("placementHint", placementHint);
-    fd.set("includeRecording", includeRecording ? "true" : "false");
-    setBusy(true);
-    setError("");
-    const result = await uploadAiSource(sessionId, fd);
-    setBusy(false);
-    if (result.error) {
-      setError(result.error);
-      return;
+  function requireNote(): boolean {
+    if (!sourceNote.trim()) {
+      setError("Add a note describing this source (what it is and how to use it).");
+      return false;
     }
-    form.reset();
-    setPlacementHint("");
-    await pollSession(sessionId);
+    return true;
   }
 
-  async function handleEmbed() {
-    if (!sessionId || !embedUrl.trim()) return;
-    setBusy(true);
-    const fd = new FormData();
-    fd.set("embedUrl", embedUrl.trim());
-    fd.set("placementHint", placementHint);
+  async function postSource(fd: FormData) {
+    if (!sessionId) return false;
+    fd.set("sourceNote", sourceNote.trim());
     const result = await uploadAiSource(sessionId, fd);
-    setBusy(false);
     if (result.error) {
       setError(result.error);
+      return false;
+    }
+    return true;
+  }
+
+  async function handleUpload(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!sessionId || !requireNote()) return;
+    const form = e.currentTarget;
+    const input = form.elements.namedItem("file") as HTMLInputElement | null;
+    const files = input?.files;
+    if (!files?.length) {
+      setError("Choose at least one file.");
       return;
     }
-    setEmbedUrl("");
-    await pollSession(sessionId);
+    setBusy(true);
+    setError("");
+    let ok = true;
+    for (let i = 0; i < files.length; i++) {
+      const fd = new FormData();
+      fd.set("file", files[i]);
+      fd.set("includeRecording", includeRecording ? "true" : "false");
+      if (!(await postSource(fd))) {
+        ok = false;
+        break;
+      }
+    }
+    setBusy(false);
+    if (ok) {
+      form.reset();
+      await pollSession(sessionId);
+    }
+  }
+
+  async function handleAddUrl() {
+    if (!sessionId || !requireNote()) return;
+    if (!sourceUrl.trim()) {
+      setError("Enter a URL.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    const fd = new FormData();
+    fd.set("sourceUrl", sourceUrl.trim());
+    fd.set("urlKind", urlKind);
+    fd.set("includeRecording", includeRecording ? "true" : "false");
+    const ok = await postSource(fd);
+    setBusy(false);
+    if (ok) {
+      setSourceUrl("");
+      await pollSession(sessionId);
+    }
+  }
+
+  async function handlePasteText() {
+    if (!sessionId || !requireNote()) return;
+    if (!pastedText.trim()) {
+      setError("Paste some text to add as a source.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    const fd = new FormData();
+    fd.set("pastedText", pastedText.trim());
+    if (pastedTitle.trim()) fd.set("pastedTitle", pastedTitle.trim());
+    const ok = await postSource(fd);
+    setBusy(false);
+    if (ok) {
+      setPastedText("");
+      setPastedTitle("");
+      await pollSession(sessionId);
+    }
   }
 
   async function runProcessing() {
@@ -291,76 +348,164 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
       )}
 
       {step === "sources" && sessionId && (
-        <div className="space-y-4 rounded-xl border bg-white p-4 sm:p-6">
-          <form onSubmit={handleUpload} className="space-y-3">
-            <label className="block text-sm font-medium text-storm-navy">
-              Upload files (PDF, PPTX, audio, video, images, text)
-            </label>
-            <input
-              type="file"
-              name="file"
-              multiple
-              accept=".pdf,.pptx,.ppt,.mp3,.wav,.m4a,.mp4,.mov,.webm,.png,.jpg,.jpeg,.txt,.md"
-              className="block w-full text-sm"
-            />
-            <input
-              type="text"
-              placeholder="Placement hint (optional)"
-              value={placementHint}
-              onChange={(e) => setPlacementHint(e.target.value)}
-              className="w-full rounded-lg border px-3 py-2 text-sm"
-            />
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={includeRecording}
-                onChange={(e) => setIncludeRecording(e.target.checked)}
-              />
-              Include video recording in course (uncheck for transcript only)
-            </label>
-            <button
-              type="submit"
-              disabled={busy}
-              className="min-h-10 rounded-lg border px-4 text-sm font-medium"
-            >
-              Upload
-            </button>
-          </form>
+        <div className="space-y-6 rounded-xl border bg-white p-4 sm:p-6">
+          <p className="text-sm text-storm-navy/70">
+            For every source, add the material and a short note so the AI knows what it
+            is and how to use it (e.g. module intro, reference only, include in quiz).
+          </p>
 
-          <div className="flex gap-2">
+          <label className="block text-sm">
+            <span className="font-medium text-storm-navy">
+              Note about your next source <span className="text-red-600">*</span>
+            </span>
+            <textarea
+              value={sourceNote}
+              onChange={(e) => setSourceNote(e.target.value)}
+              rows={2}
+              placeholder="What is this and how should it be used in the course?"
+              className="mt-1 w-full rounded-lg border border-storm-light-blue/60 px-3 py-2"
+            />
+          </label>
+
+          <section className="space-y-3 rounded-lg border border-storm-light-blue/40 p-4">
+            <h3 className="text-sm font-medium text-storm-navy">Upload files</h3>
+            <p className="text-xs text-storm-navy/60">
+              PDF, PowerPoint, audio, video, images, or text files
+            </p>
+            <form onSubmit={handleUpload} className="space-y-3">
+              <input
+                type="file"
+                name="file"
+                multiple
+                accept=".pdf,.pptx,.ppt,.mp3,.wav,.m4a,.mp4,.mov,.webm,.png,.jpg,.jpeg,.txt,.md"
+                className="block w-full text-sm"
+              />
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={includeRecording}
+                  onChange={(e) => setIncludeRecording(e.target.checked)}
+                />
+                For uploaded videos: include recording in course (uncheck for transcript
+                only)
+              </label>
+              <button
+                type="submit"
+                disabled={busy}
+                className="min-h-10 rounded-lg border px-4 text-sm font-medium"
+              >
+                Add file(s)
+              </button>
+            </form>
+          </section>
+
+          <section className="space-y-3 rounded-lg border border-storm-light-blue/40 p-4">
+            <h3 className="text-sm font-medium text-storm-navy">Link</h3>
+            <p className="text-xs text-storm-navy/60">
+              Web articles, documentation, or video URLs (e.g. YouTube)
+            </p>
+            <div className="flex flex-wrap gap-3 text-sm">
+              <label className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="urlKind"
+                  checked={urlKind === "webpage"}
+                  onChange={() => setUrlKind("webpage")}
+                />
+                Web page / article
+              </label>
+              <label className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="urlKind"
+                  checked={urlKind === "video"}
+                  onChange={() => setUrlKind("video")}
+                />
+                Video link
+              </label>
+            </div>
             <input
               type="url"
-              placeholder="Embed URL"
-              value={embedUrl}
-              onChange={(e) => setEmbedUrl(e.target.value)}
-              className="min-h-10 flex-1 rounded-lg border px-3 text-sm"
+              placeholder="https://…"
+              value={sourceUrl}
+              onChange={(e) => setSourceUrl(e.target.value)}
+              className="min-h-10 w-full rounded-lg border px-3 text-sm"
+            />
+            {urlKind === "video" && (
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={includeRecording}
+                  onChange={(e) => setIncludeRecording(e.target.checked)}
+                />
+                Include video in course (uncheck to use transcript/context only)
+              </label>
+            )}
+            <button
+              type="button"
+              onClick={handleAddUrl}
+              disabled={busy || !sourceUrl.trim()}
+              className="min-h-10 rounded-lg border px-4 text-sm font-medium"
+            >
+              Add link
+            </button>
+          </section>
+
+          <section className="space-y-3 rounded-lg border border-storm-light-blue/40 p-4">
+            <h3 className="text-sm font-medium text-storm-navy">Paste text</h3>
+            <input
+              type="text"
+              placeholder="Title (optional)"
+              value={pastedTitle}
+              onChange={(e) => setPastedTitle(e.target.value)}
+              className="min-h-10 w-full rounded-lg border px-3 text-sm"
+            />
+            <textarea
+              value={pastedText}
+              onChange={(e) => setPastedText(e.target.value)}
+              rows={6}
+              placeholder="Paste notes, procedures, email copy, etc."
+              className="w-full rounded-lg border px-3 py-2 text-sm"
             />
             <button
               type="button"
-              onClick={handleEmbed}
-              disabled={busy || !embedUrl.trim()}
-              className="min-h-10 rounded-lg border px-4 text-sm"
+              onClick={handlePasteText}
+              disabled={busy || !pastedText.trim()}
+              className="min-h-10 rounded-lg border px-4 text-sm font-medium"
             >
-              Add embed
+              Add pasted text
             </button>
-          </div>
+          </section>
 
           {assets.length > 0 && (
             <ul className="divide-y rounded-lg border text-sm">
               {assets.map((a) => (
-                <li
-                  key={a.id}
-                  className="flex items-center justify-between gap-2 px-3 py-2"
-                >
-                  <span>
-                    {a.filename ?? a.kind} · {a.processingStatus}
-                    {a.processingError && (
-                      <span className="text-red-600"> — {a.processingError}</span>
+                <li key={a.id} className="flex gap-3 px-3 py-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium text-storm-navy">
+                      {a.filename ?? a.kind}
+                      <span className="ml-2 text-xs font-normal text-storm-navy/50">
+                        {a.kind} · {a.processingStatus}
+                      </span>
+                    </p>
+                    {a.placementHint && (
+                      <p className="mt-1 text-storm-navy/80">
+                        <span className="text-storm-navy/50">Note: </span>
+                        {a.placementHint}
+                      </p>
                     )}
-                  </span>
+                    {a.blobUrl && (
+                      <p className="mt-0.5 truncate text-xs text-storm-navy/50">
+                        {a.blobUrl}
+                      </p>
+                    )}
+                    {a.processingError && (
+                      <p className="mt-1 text-red-600">{a.processingError}</p>
+                    )}
+                  </div>
                   <button
                     type="button"
-                    className="text-xs text-red-600"
+                    className="shrink-0 text-xs text-red-600"
                     onClick={async () => {
                       await deleteAiSourceAsset(a.id);
                       await pollSession(sessionId);

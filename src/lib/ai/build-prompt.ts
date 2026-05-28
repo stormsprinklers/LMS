@@ -55,7 +55,7 @@ export function buildGenerationMessages(options: {
       [
         `### Asset ${a.id} (${a.kind})`,
         a.filename ? `File: ${a.filename}` : "",
-        a.placementHint ? `Placement hint: ${a.placementHint}` : "",
+        a.placementHint ? `Author note: ${a.placementHint}` : "",
         a.kind === "video" && !a.includeRecording
           ? "Note: use transcript only; do not create VIDEO item with recording."
           : "",
@@ -75,7 +75,8 @@ export function buildGenerationMessages(options: {
 
   const system = `You are an instructional designer building training for a field-service / irrigation company.
 Output ONLY valid JSON matching the CourseBlueprint schema (version "1.0").
-Use asset ids in sourceAssetRef, mediaPlacements.assetRef, and sourceAssets[] when referencing uploads.
+Do NOT include sourceAssets[] in the JSON (uploads are tracked server-side).
+Reference uploads only via video.sourceAssetRef or mediaPlacements with assetRef, moduleIndex (0-based), and position (intro|after_section|inline|item_end).
 Prefer practical, safety-aware training content. HTML in lesson.bodyHtml should use simple tags (<p>, <ul>, <li>, <strong>).`;
 
   const user = [

@@ -195,6 +195,7 @@ enum AiSourceAssetKind {
   video
   image
   embed
+  webpage
 }
 
 enum AiAssetProcessingStatus {
