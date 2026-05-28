@@ -3,6 +3,7 @@
 import type { CourseBlueprint } from "@/lib/ai/blueprint-schema";
 import type { BlueprintIssue } from "@/lib/ai/validate-blueprint";
 import type { CourseItemType } from "@prisma/client";
+import { YouTubeIframe } from "@/components/video/YouTubeIframe";
 import { ItemTypeIcon } from "../ItemTypeIcon";
 
 export function BlueprintPreview({
@@ -156,8 +157,15 @@ function PreviewItemDetail({
         />
       )}
       {item.video && (
-        <div className="mt-3 space-y-1 text-xs">
-          {item.video.youtubeUrl && <p>YouTube: {item.video.youtubeUrl}</p>}
+        <div className="mt-3 space-y-2 text-xs">
+          {item.video.youtubeUrl && (
+            <div className="overflow-hidden rounded-lg bg-storm-navy">
+              <YouTubeIframe
+                urlOrId={item.video.youtubeUrl}
+                title={item.title}
+              />
+            </div>
+          )}
           {item.video.sourceAssetRef && (
             <p>Source asset: {item.video.sourceAssetRef}</p>
           )}

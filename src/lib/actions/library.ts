@@ -30,6 +30,7 @@ export type LibraryAssetListItem = {
   kind: string;
   filename: string | null;
   blobUrl: string | null;
+  muxPlaybackId: string | null;
   processingStatus: string;
   processingError: string | null;
   createdAt: string;
@@ -65,6 +66,7 @@ export async function listLibraryAssets(): Promise<{
         kind: a.kind,
         filename: a.filename,
         blobUrl: a.blobUrl,
+        muxPlaybackId: a.muxPlaybackId,
         processingStatus: a.processingStatus,
         processingError: a.processingError,
         createdAt: a.createdAt.toISOString(),
@@ -142,6 +144,54 @@ export async function uploadLibraryAsset(
         },
       });
       void processLibraryAsset(asset.id);
+      revalidatePath("/library");
+      return { asset: { id: asset.id } };
+    }
+
+    const clientBlobUrl = String(formData.get("blobUrl") ?? "").trim();
+    const uploadedFilename = String(formData.get("uploadedFilename") ?? "").trim();
+    const uploadedMimeType = String(formData.get("uploadedMimeType") ?? "").trim();
+
+    if (clientBlobUrl) {
+      if (!isHttpUrl(clientBlobUrl)) {
+        return { error: "Invalid uploaded file URL." };
+      }
+      if (!uploadedFilename) {
+        return { error: "Missing uploaded file name." };
+      }
+
+      const kind = kindFromMime(uploadedMimeType, uploadedFilename);
+      let textContent: string | null = null;
+      if (kind === "text") {
+        try {
+          const res = await fetch(clientBlobUrl);
+          textContent = await res.text();
+        } catch {
+          textContent = null;
+        }
+      }
+
+      const asset = await prisma.libraryAsset.create({
+        data: {
+          title,
+          description,
+          scope,
+          createdById: userId,
+          kind,
+          filename: uploadedFilename,
+          mimeType: uploadedMimeType || null,
+          blobUrl: clientBlobUrl,
+          includeRecording: kind === "video" ? includeRecording : false,
+          processingStatus:
+            kind === "image" || (kind === "text" && textContent) ? "ready" : "pending",
+          ...(textContent ? { extractedText: textContent } : {}),
+        },
+      });
+
+      if (asset.processingStatus === "pending") {
+        void processLibraryAsset(asset.id);
+      }
+
       revalidatePath("/library");
       return { asset: { id: asset.id } };
     }

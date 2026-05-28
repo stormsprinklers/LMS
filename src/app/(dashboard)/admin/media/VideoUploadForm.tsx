@@ -54,7 +54,7 @@ export function VideoUploadForm({ lessonId }: { lessonId: string }) {
         type="button"
         disabled={busy}
         onClick={() => inputRef.current?.click()}
-        className="inline-flex items-center gap-1 text-sm text-storm-medium-blue hover:underline disabled:opacity-50"
+        className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-storm-medium-blue/50 bg-white px-4 py-2 text-sm font-semibold text-storm-medium-blue disabled:opacity-50"
       >
         <Upload className="h-3.5 w-3.5" />
         {busy ? "Uploading…" : "Upload video file"}

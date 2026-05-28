@@ -2,6 +2,7 @@
 
 import { importQuestionsFromCsv } from "@/lib/actions/exams-admin";
 import { parseQuestionsCsv } from "@/lib/exams/csv-import";
+import { FileInput } from "@/components/ui/FileInput";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 
@@ -44,12 +45,10 @@ export function CsvImportForm({ examId }: { examId: string }) {
         <label className="mb-2 block text-sm font-medium text-storm-navy">
           Upload CSV file
         </label>
-        <input
+        <FileInput
           ref={fileRef}
-          type="file"
           accept=".csv,text/csv"
           onChange={handleFile}
-          className="w-full min-h-11 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-storm-medium-blue file:px-4 file:py-2 file:text-sm file:text-white"
         />
       </div>
       <div>

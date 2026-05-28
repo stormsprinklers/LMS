@@ -28,6 +28,9 @@ import {
 import { BlueprintPreview } from "../ai/BlueprintPreview";
 import { AiLoadingSpinner } from "../ai/AiLoadingSpinner";
 import { ItemTypePicker } from "../ai/ItemTypePicker";
+import { FileInput } from "@/components/ui/FileInput";
+import { YouTubeIframe } from "@/components/video/YouTubeIframe";
+import { isYouTubeUrl } from "@/lib/video/youtube";
 
 type WizardStep =
   | "intent"
@@ -574,12 +577,10 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
             <p className="text-xs text-storm-navy/60">
               Select one or more files, add a note for each, then upload.
             </p>
-            <input
-              type="file"
+            <FileInput
               multiple
               accept=".pdf,.pptx,.ppt,.mp3,.wav,.m4a,.mp4,.mov,.webm,.png,.jpg,.jpeg,.txt,.md"
               onChange={onFilesSelected}
-              className="block w-full text-sm"
             />
             {pendingFiles.length > 0 && (
               <ul className="space-y-3">
@@ -731,11 +732,31 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
                         {a.placementHint}
                       </p>
                     )}
-                    {a.blobUrl && (
-                      <p className="mt-0.5 truncate text-xs text-storm-navy/50">
-                        {a.blobUrl}
-                      </p>
+                    {a.blobUrl && isYouTubeUrl(a.blobUrl) && (
+                      <div className="mt-2 overflow-hidden rounded-lg bg-storm-navy">
+                        <YouTubeIframe
+                          urlOrId={a.blobUrl}
+                          title={a.filename ?? "YouTube source"}
+                        />
+                      </div>
                     )}
+                    {a.blobUrl && !isYouTubeUrl(a.blobUrl) && a.kind === "image" && (
+                      <div className="mt-2 overflow-hidden rounded-lg border">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={a.blobUrl}
+                          alt={a.filename ?? "Source image"}
+                          className="max-h-48 w-full object-contain"
+                        />
+                      </div>
+                    )}
+                    {a.blobUrl &&
+                      !isYouTubeUrl(a.blobUrl) &&
+                      a.kind !== "image" && (
+                        <p className="mt-0.5 truncate text-xs text-storm-navy/50">
+                          {a.blobUrl}
+                        </p>
+                      )}
                   </div>
                   <button
                     type="button"

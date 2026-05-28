@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { upload } from "@vercel/blob/client";
 import {
   archiveLibraryAsset,
   listLibraryAssets,
@@ -8,7 +9,14 @@ import {
   uploadLibraryAsset,
   type LibraryAssetListItem,
 } from "@/lib/actions/library";
-import { LIBRARY_FILE_ACCEPT, kindLabel } from "@/lib/media/asset-utils";
+import { LIBRARY_FILE_ACCEPT, MAX_MEDIA_FILE_BYTES, kindLabel } from "@/lib/media/asset-utils";
+import { FileInput } from "@/components/ui/FileInput";
+import {
+  LibraryAssetMedia,
+  libraryAssetCanDownload,
+  libraryAssetHasInAppPreview,
+  libraryAssetOpensExternally,
+} from "@/components/library/LibraryAssetMedia";
 import { Badge } from "@/components/ui/Badge";
 import { formatDate } from "@/lib/utils";
 import {
@@ -95,6 +103,22 @@ export function LibraryBrowser({
       } else if (sourceUrl.trim()) {
         fd.set("sourceUrl", sourceUrl.trim());
         fd.set("urlKind", urlKind);
+      } else {
+        const file = fd.get("file");
+        if (file instanceof File && file.size > 0) {
+          if (file.size > MAX_MEDIA_FILE_BYTES) {
+            setError("File exceeds 80MB limit.");
+            return;
+          }
+          const blob = await upload(`library/${file.name}`, file, {
+            access: "public",
+            handleUploadUrl: "/api/library/upload",
+          });
+          fd.delete("file");
+          fd.set("blobUrl", blob.url);
+          fd.set("uploadedFilename", file.name);
+          fd.set("uploadedMimeType", file.type || "");
+        }
       }
       const result = await uploadLibraryAsset(fd);
       if (result.error) {
@@ -108,6 +132,8 @@ export function LibraryBrowser({
       (e.target as HTMLFormElement).reset();
       setMessage("Uploaded. Processing may take a minute for PDFs and videos.");
       await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload failed.");
     } finally {
       setBusy(false);
     }
@@ -192,12 +218,7 @@ export function LibraryBrowser({
 
           <div className="space-y-3 rounded-lg border border-storm-light-blue/40 p-4">
             <p className="text-sm font-medium text-storm-navy">File</p>
-            <input
-              type="file"
-              name="file"
-              accept={LIBRARY_FILE_ACCEPT}
-              className="block w-full text-sm"
-            />
+            <FileInput name="file" accept={LIBRARY_FILE_ACCEPT} />
             <label className="flex items-center gap-2 text-sm text-storm-navy/80">
               <input
                 type="checkbox"
@@ -281,76 +302,82 @@ export function LibraryBrowser({
           {filtered.map((asset) => (
             <li
               key={asset.id}
-              className="flex flex-col gap-4 rounded-xl border bg-white p-4 sm:flex-row sm:items-start"
+              className="rounded-xl border bg-white p-4"
             >
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-storm-light-blue text-storm-navy">
-                <KindIcon kind={asset.kind} />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="font-title font-bold text-storm-navy">{asset.title}</h3>
-                  {statusBadge(asset.processingStatus)}
-                  <Badge variant={asset.scope === "shared" ? "info" : "default"}>
-                    {asset.scope === "shared" ? "Shared" : "Personal"}
-                  </Badge>
-                  <Badge variant="default">{kindLabel(asset.kind)}</Badge>
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-storm-light-blue text-storm-navy">
+                  <KindIcon kind={asset.kind} />
                 </div>
-                <p className="mt-1 text-sm text-storm-navy/70">{asset.description}</p>
-                <p className="mt-1 text-xs text-storm-navy/50">
-                  {asset.filename ?? "—"} ·{" "}
-                  {asset.createdBy.name ?? asset.createdBy.email} ·{" "}
-                  {formatDate(asset.createdAt)}
-                </p>
-                {asset.processingError && (
-                  <p className="mt-2 text-xs text-red-700">{asset.processingError}</p>
-                )}
-              </div>
-              <div className="flex shrink-0 flex-wrap gap-2">
-                {asset.blobUrl && asset.processingStatus === "ready" && (
-                  <>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="font-title font-bold text-storm-navy">{asset.title}</h3>
+                    {statusBadge(asset.processingStatus)}
+                    <Badge variant={asset.scope === "shared" ? "info" : "default"}>
+                      {asset.scope === "shared" ? "Shared" : "Personal"}
+                    </Badge>
+                    <Badge variant="default">{kindLabel(asset.kind)}</Badge>
+                  </div>
+                  <p className="mt-1 text-sm text-storm-navy/70">{asset.description}</p>
+                  <p className="mt-1 text-xs text-storm-navy/50">
+                    {asset.filename ?? "—"} ·{" "}
+                    {asset.createdBy.name ?? asset.createdBy.email} ·{" "}
+                    {formatDate(asset.createdAt)}
+                  </p>
+                  {asset.processingError && (
+                    <p className="mt-2 text-xs text-red-700">{asset.processingError}</p>
+                  )}
+                </div>
+                <div className="flex shrink-0 flex-wrap gap-2 sm:flex-col sm:items-end">
+                  {libraryAssetOpensExternally(asset) && (
                     <a
-                      href={asset.blobUrl}
+                      href={asset.blobUrl!}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-1 rounded-lg border border-storm-medium-blue px-3 py-2 text-sm font-semibold text-storm-medium-blue no-underline"
                     >
                       <ExternalLink className="h-4 w-4" />
-                      Open
+                      Open link
                     </a>
+                  )}
+                  {libraryAssetCanDownload(asset) && (
                     <a
-                      href={asset.blobUrl}
+                      href={asset.blobUrl!}
                       download
                       className="inline-flex items-center gap-1 rounded-lg bg-storm-navy px-3 py-2 text-sm font-semibold text-white no-underline"
                     >
                       <Download className="h-4 w-4" />
                       Download
                     </a>
-                  </>
-                )}
-                {(asset.processingStatus === "failed" ||
-                  asset.processingStatus === "pending") && (
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => handleReprocess(asset.id)}
-                    className="inline-flex items-center gap-1 rounded-lg border px-3 py-2 text-sm"
-                  >
-                    <RefreshCw className="h-4 w-4" />
-                    Retry
-                  </button>
-                )}
-                {asset.isOwner && (
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => handleArchive(asset.id)}
-                    className="inline-flex items-center gap-1 rounded-lg border border-red-200 px-3 py-2 text-sm text-red-800"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    Remove
-                  </button>
-                )}
+                  )}
+                  {(asset.processingStatus === "failed" ||
+                    asset.processingStatus === "pending") && (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => handleReprocess(asset.id)}
+                      className="inline-flex items-center gap-1 rounded-lg border px-3 py-2 text-sm"
+                    >
+                      <RefreshCw className="h-4 w-4" />
+                      Retry
+                    </button>
+                  )}
+                  {asset.isOwner && (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => handleArchive(asset.id)}
+                      className="inline-flex items-center gap-1 rounded-lg border border-red-200 px-3 py-2 text-sm text-red-800"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Remove
+                    </button>
+                  )}
+                </div>
               </div>
+              {(libraryAssetHasInAppPreview(asset) ||
+                asset.processingStatus === "ready") && (
+                <LibraryAssetMedia asset={asset} />
+              )}
             </li>
           ))}
           {filtered.length === 0 && (

@@ -1,6 +1,7 @@
 "use client";
 
 import { uploadManualPdf } from "@/lib/actions/media";
+import { FileInput } from "@/components/ui/FileInput";
 import { useState } from "react";
 
 export function ManualUploadForm({ manualId }: { manualId: string }) {
@@ -15,9 +16,12 @@ export function ManualUploadForm({ manualId }: { manualId: string }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex gap-2">
-      <input type="file" name="file" accept="application/pdf" required />
-      <button type="submit" className="rounded bg-storm-navy px-3 py-1 text-sm text-white">
+    <form onSubmit={handleSubmit} className="flex flex-wrap items-center gap-3">
+      <FileInput name="file" accept="application/pdf" required />
+      <button
+        type="submit"
+        className="min-h-11 rounded-lg bg-storm-navy px-4 py-2 text-sm font-semibold text-white"
+      >
         Upload PDF
       </button>
       {status && <span className="text-sm text-storm-navy/70">{status}</span>}
