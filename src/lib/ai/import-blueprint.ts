@@ -11,6 +11,7 @@ import type {
   QuestionType,
 } from "@prisma/client";
 import { revalidatePath } from "next/cache";
+import { syncCourseItemMediaToLibrary } from "@/lib/library/sync-from-course";
 
 const ITEM_DEFAULT_TITLE: Record<CourseItemType, string> = {
   LESSON: "New Lesson",
@@ -210,7 +211,7 @@ async function createItemFromBlueprint(
     lessonContentId = lc.id;
   }
 
-  await prisma.courseItem.create({
+  const courseItem = await prisma.courseItem.create({
     data: {
       courseId,
       moduleId,
@@ -229,6 +230,8 @@ async function createItemFromBlueprint(
       scenarioId,
     },
   });
+
+  return courseItem.id;
 }
 
 export async function importCourseBlueprint(
@@ -238,6 +241,7 @@ export async function importCourseBlueprint(
 ) {
   const session = await requireManageCourse(courseId);
   const userId = session.user.id;
+  const role = (session.user as { role?: string }).role;
 
   const validation = validateBlueprint(blueprint);
   if (!validation.ok) {
@@ -272,7 +276,7 @@ export async function importCourseBlueprint(
       where: { moduleId: mod.id },
     });
     for (let i = 0; i < (modBlueprint?.items.length ?? 0); i++) {
-      await createItemFromBlueprint(
+      const newItemId = await createItemFromBlueprint(
         courseId,
         mod.id,
         modBlueprint.items[i],
@@ -282,6 +286,11 @@ export async function importCourseBlueprint(
         0,
         i,
       );
+      void syncCourseItemMediaToLibrary({
+        courseItemId: newItemId,
+        userId,
+        role,
+      });
     }
   } else if (blueprint.mode === "module" && options?.targetModuleId) {
     const modBlueprint = blueprint.modules[0];
@@ -297,7 +306,7 @@ export async function importCourseBlueprint(
         where: { moduleId: options.targetModuleId },
       });
       for (let i = 0; i < modBlueprint.items.length; i++) {
-        await createItemFromBlueprint(
+        const newItemId = await createItemFromBlueprint(
           courseId,
           options.targetModuleId,
           modBlueprint.items[i],
@@ -307,6 +316,11 @@ export async function importCourseBlueprint(
           0,
           i,
         );
+        void syncCourseItemMediaToLibrary({
+          courseItemId: newItemId,
+          userId,
+          role,
+        });
       }
     }
   } else {
@@ -324,7 +338,7 @@ export async function importCourseBlueprint(
         },
       });
       for (let ii = 0; ii < modBp.items.length; ii++) {
-        await createItemFromBlueprint(
+        const newItemId = await createItemFromBlueprint(
           courseId,
           mod.id,
           modBp.items[ii],
@@ -334,6 +348,11 @@ export async function importCourseBlueprint(
           mi,
           ii,
         );
+        void syncCourseItemMediaToLibrary({
+          courseItemId: newItemId,
+          userId,
+          role,
+        });
       }
     }
   }

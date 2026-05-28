@@ -14,6 +14,10 @@ import type {
   Prisma,
 } from "@prisma/client";
 import { revalidatePath } from "next/cache";
+import {
+  syncCourseLessonMediaToLibrary,
+  syncCourseVideoToLibrary,
+} from "@/lib/library/sync-from-course";
 
 function revalidateCourse(courseId: string, slug?: string) {
   revalidatePath("/admin/courses");
@@ -343,7 +347,8 @@ export async function updateLessonContent(
     minimumTimeSeconds?: number | null;
   },
 ) {
-  await requireManageCourseItem(itemId);
+  const session = await requireManageCourseItem(itemId);
+  const role = (session.user as { role?: string }).role;
   const item = await prisma.courseItem.findUnique({
     where: { id: itemId },
     include: { lessonContent: true },
@@ -373,6 +378,12 @@ export async function updateLessonContent(
 
   await markUnpublished(item.courseId);
   revalidateCourse(item.courseId);
+  void syncCourseLessonMediaToLibrary({
+    courseItemId: itemId,
+    userId: session.user.id,
+    role,
+    bodyHtml: lessonData.bodyHtml,
+  });
   return { success: true as const };
 }
 
@@ -392,7 +403,8 @@ export async function updateVideoLessonContent(
     estimatedMinutes?: number;
   },
 ) {
-  await requireManageCourseItem(itemId);
+  const session = await requireManageCourseItem(itemId);
+  const role = (session.user as { role?: string }).role;
   const item = await prisma.courseItem.findUnique({
     where: { id: itemId },
     include: { videoLesson: true, legacyLesson: { include: { videoAsset: true } } },
@@ -438,6 +450,14 @@ export async function updateVideoLessonContent(
   }
   await markUnpublished(item.courseId);
   revalidateCourse(item.courseId);
+  void syncCourseVideoToLibrary({
+    courseItemId: itemId,
+    userId: session.user.id,
+    role,
+    videoUrl: data.videoUrl,
+    muxPlaybackId: data.muxPlaybackId,
+    transcript: data.transcript,
+  });
   return { success: true };
 }
 

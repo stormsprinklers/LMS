@@ -198,6 +198,8 @@ model LibraryAsset {
   muxPlaybackId     String?
   processingStatus  AiAssetProcessingStatus @default(pending)
   processingError   String?                 @db.Text
+  sourceCourseId    String?
+  sourceCourseItemId String?
   archived          Boolean                 @default(false)
   archivedAt        DateTime?
   createdAt         DateTime                @default(now())
@@ -207,6 +209,8 @@ model LibraryAsset {
 
   @@index([createdById])
   @@index([scope, archived])
+  @@index([sourceCourseItemId])
+  @@index([sourceCourseId])
 }
 
 enum AiGenerationMode {

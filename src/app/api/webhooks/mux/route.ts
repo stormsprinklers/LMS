@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { NextResponse } from "next/server";
+import { syncCourseVideoByCourseItemId } from "@/lib/library/sync-from-course";
 
 function resolveLessonId(passthrough: string | undefined): string | null {
   if (!passthrough) return null;
@@ -98,6 +99,12 @@ export async function POST(request: Request) {
           revalidatePath(`/courses/${course.slug}`);
           revalidatePath(`/admin/courses/${item.courseId}/builder`);
         }
+        void syncCourseVideoByCourseItemId(
+          courseItemId,
+          assetId,
+          playbackId,
+          duration,
+        );
       }
     } else {
       const lessonId = resolveLessonId(passthrough);
@@ -121,7 +128,7 @@ export async function POST(request: Request) {
 
         const linkedItem = await prisma.courseItem.findFirst({
           where: { legacyLessonId: lessonId },
-          select: { videoLessonId: true },
+          select: { id: true, videoLessonId: true },
         });
         if (linkedItem?.videoLessonId) {
           await prisma.videoLesson.update({
@@ -133,6 +140,12 @@ export async function POST(request: Request) {
               status: "ready",
             },
           });
+          void syncCourseVideoByCourseItemId(
+            linkedItem.id,
+            assetId,
+            playbackId,
+            duration,
+          );
         }
       }
     }
