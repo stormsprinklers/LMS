@@ -12,8 +12,9 @@
     "db:migrate": "node scripts/prisma-env.mjs migrate dev",
     "db:migrate:deploy": "node scripts/prisma-env.mjs migrate deploy",
     "db:push": "node scripts/prisma-env.mjs db push",
-    "db:seed": "tsx prisma/seed.ts",
-    "db:backfill-courses": "tsx prisma/migrate-courses-to-builder.ts",
+    "db:seed": "node scripts/tsx-env.mjs prisma/seed.ts",
+    "db:seed:production": "node scripts/tsx-env.mjs prisma/seed-production.ts",
+    "db:backfill-courses": "node scripts/tsx-env.mjs prisma/migrate-courses-to-builder.ts",
     "db:studio": "prisma studio",
     "postinstall": "prisma generate"
   },

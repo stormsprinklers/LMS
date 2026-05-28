@@ -50,15 +50,37 @@ if (process.env.RUN_PRISMA_MIGRATE === "1") {
   );
 }
 
-console.log("Backfilling course builder curriculum from legacy lessons…");
-try {
-  execSync("npx tsx prisma/migrate-courses-to-builder.ts", { stdio: "inherit" });
-} catch (e) {
-  console.warn("Course builder backfill skipped or partial:", e.message ?? e);
+function runOptionalDbScript(label, command) {
+  try {
+    execSync(command, { stdio: "inherit" });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    console.warn(`${label} skipped or partial: ${message}`);
+  }
 }
 
-console.log("Running production seed (skipped if admin already exists)…");
-execSync("npx tsx prisma/seed-production.ts", { stdio: "inherit" });
+if (process.env.RUN_VERCEL_DB_SCRIPTS === "1") {
+  console.log("RUN_VERCEL_DB_SCRIPTS=1 — running optional DB scripts…");
+  runOptionalDbScript(
+    "Course builder backfill",
+    "npx tsx prisma/migrate-courses-to-builder.ts",
+  );
+  runOptionalDbScript(
+    "Production seed",
+    "npx tsx prisma/seed-production.ts",
+  );
+} else {
+  console.log(
+    "Skipping DB backfill/seed on build (Neon is often unreachable from Vercel build).",
+  );
+  console.log("Run once locally against production DATABASE_URL if needed:");
+  console.log("  npm run db:migrate:deploy");
+  console.log("  npm run db:backfill-courses");
+  console.log("  npm run db:seed:production");
+  console.log(
+    "Opt-in during build: set RUN_VERCEL_DB_SCRIPTS=1 on Vercel (not recommended).",
+  );
+}
 
 console.log("Running next build…");
 execSync("npx next build", { stdio: "inherit" });

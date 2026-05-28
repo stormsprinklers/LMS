@@ -55,9 +55,16 @@ The error `404: NOT_FOUND` with an ID like `sfo1::...` is **Vercel’s platform*
 
 6. **Redeploy** — After env vars are set: Deployments → Redeploy production.
 
-## Admin account (automatic on Vercel)
+## Admin account (first-time setup)
 
-On each deploy, the build runs `prisma/seed-production.ts` after migrations. It **only runs when no admin exists** — safe to redeploy without wiping data.
+Vercel builds **do not** run database seed/backfill by default (Neon is often unreachable during build). After pointing `.env.local` at production `DATABASE_URL`, run once from your machine:
+
+```bash
+npm run db:migrate:deploy
+npm run db:seed:production
+```
+
+`seed-production.ts` **only creates an admin when none exists** — safe to run again.
 
 Default login (if you do not set custom env vars):
 
