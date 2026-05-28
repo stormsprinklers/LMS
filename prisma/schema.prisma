@@ -187,6 +187,7 @@ model LibraryAsset {
   kind              AiSourceAssetKind
   filename          String?
   mimeType          String?
+  fileSizeBytes     Int?
   blobUrl           String?
   includeRecording  Boolean                 @default(true)
   extractedText     String?                 @db.Text

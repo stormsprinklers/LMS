@@ -13,6 +13,7 @@ The error `404: NOT_FOUND` with an ID like `sfo1::...` is **Vercel’s platform*
    | `DATABASE_URL` | Neon connection string (`postgresql://...?sslmode=require`) |
    | `AUTH_SECRET` | Random string (`openssl rand -base64 32`) |
    | `NEXTAUTH_URL` | `https://learning.stormsprinklers.com` |
+   | `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` | Base64 AES key (32 bytes) — keeps Server Action IDs stable across deploys. Generate: `openssl rand -base64 32`. Set on **Production, Preview, and Development** so every build uses the same key. |
 
    Enable each for **Production**, **Preview**, and **Development** so they are available at **build time**.
 
@@ -43,7 +44,11 @@ The error `404: NOT_FOUND` with an ID like `sfo1::...` is **Vercel’s platform*
 
    Then redeploy on Vercel. Optional: set `RUN_PRISMA_MIGRATE=1` on Vercel only if you intentionally want migrations during a build (not recommended on Neon).
 
-   Optional: `MUX_TOKEN_ID`, `MUX_TOKEN_SECRET`, `MUX_WEBHOOK_SECRET`, `BLOB_READ_WRITE_TOKEN`, `OPENAI_API_KEY` (AI Studio in course builder)
+   Optional: `MUX_TOKEN_ID`, `MUX_TOKEN_SECRET`, `MUX_WEBHOOK_SECRET`, `OPENAI_API_KEY` (AI Studio in course builder)
+
+   **If uploads fail with “Server Action … was not found”** after a deploy, hard-refresh the page (Ctrl+Shift+R). Ensure `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` is set on Vercel (see table above) and redeploy. Library uploads use `/api/library/*` routes and do not depend on Server Actions for the save step.
+
+   **Required for file uploads (Library, AI Studio, PDF manuals):** `BLOB_READ_WRITE_TOKEN` — see [Vercel Blob setup](#vercel-blob-file-uploads) below.
 
    **If the build log shows `Environment variable not found: DATABASE_URL`**, the deploy never completed — add `DATABASE_URL` and redeploy.
 
@@ -81,6 +86,38 @@ Default login (if you do not set custom env vars):
 After the first successful deploy with users in the DB, change the password via Admin → Users or update the user in Neon.
 
 `npm run db:seed` is only for **local development** (resets the database).
+
+## Vercel Blob (file uploads)
+
+Library uploads, AI Studio source files, and admin PDF manuals are stored in **Vercel Blob**. Without it you will see errors like *“Failed to retrieve the client token”* or *“File storage is not configured”*.
+
+### Production (Vercel dashboard)
+
+1. Open [vercel.com](https://vercel.com) → your **LMS** project.
+2. Go to **Storage** tab → **Create Database** → choose **Blob**.
+3. Name the store (e.g. `storm-lms-files`) and create it.
+4. When prompted, **Connect to Project** and select your LMS project (Production + Preview).
+5. Vercel adds `BLOB_READ_WRITE_TOKEN` to the project automatically.
+6. **Redeploy** production (Deployments → … → Redeploy) so the running app picks up the new variable.
+
+### Local development
+
+1. In Vercel → Project → **Settings** → **Environment Variables**, copy the value of `BLOB_READ_WRITE_TOKEN` (or use the Storage → your blob store → **.env.local** snippet).
+2. Paste into `.env.local` in the repo root:
+   ```
+   BLOB_READ_WRITE_TOKEN="vercel_blob_rw_..."
+   ```
+3. Restart `npm run dev`.
+
+Alternatively, from the project folder with the Vercel CLI linked to the project:
+
+```bash
+vercel env pull .env.local
+```
+
+### Verify
+
+After setup, upload a small PDF in **Library**. It should appear in the list without token errors. In Vercel → Storage → your blob store, you should see objects under `library/`.
 
 ## Webhook URL for Mux
 

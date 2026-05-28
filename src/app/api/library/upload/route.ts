@@ -1,6 +1,7 @@
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 import { auth } from "@/auth";
 import { MAX_MEDIA_FILE_BYTES } from "@/lib/media/asset-utils";
+import { blobStorageError } from "@/lib/media/blob-config";
 
 const ALLOWED_CONTENT_TYPES = [
   "application/pdf",
@@ -22,6 +23,11 @@ const ALLOWED_CONTENT_TYPES = [
 ];
 
 export async function POST(request: Request): Promise<Response> {
+  const missingBlob = blobStorageError();
+  if (missingBlob) {
+    return Response.json({ error: missingBlob }, { status: 503 });
+  }
+
   const session = await auth();
   if (!session?.user?.id) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });

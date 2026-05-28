@@ -1,10 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import {
-  listLibraryAssetsForPicker,
-  type LibraryAssetListItem,
-} from "@/lib/actions/library";
+import { fetchLibraryAssets } from "@/lib/library/client";
+import type { LibraryAssetListItem } from "@/lib/library/types";
 import { kindLabel } from "@/lib/media/asset-utils";
 import { Badge } from "@/components/ui/Badge";
 
@@ -25,7 +23,7 @@ export function LibraryPicker({
     let cancelled = false;
     (async () => {
       setLoading(true);
-      const result = await listLibraryAssetsForPicker();
+      const result = await fetchLibraryAssets();
       if (cancelled) return;
       if (result.error) setError(result.error);
       else setAssets(result.assets ?? []);

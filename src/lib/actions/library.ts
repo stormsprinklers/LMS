@@ -1,249 +1,109 @@
 "use server";
 
 import { put } from "@vercel/blob";
-import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
 import { requireUser, requireStaff } from "@/lib/auth-utils";
 import { isStaff } from "@/lib/auth/permissions";
 import type { LibraryAssetScope } from "@prisma/client";
-import {
-  kindFromMime,
-  isHttpUrl,
-  MAX_MEDIA_FILE_BYTES,
-} from "@/lib/media/asset-utils";
+import { MAX_MEDIA_FILE_BYTES } from "@/lib/media/asset-utils";
 import { processLibraryAsset } from "@/lib/library/process-library-asset";
-import { isYouTubeUrl } from "@/lib/video/youtube";
+import { blobStorageError } from "@/lib/media/blob-config";
+import {
+  createLibraryAssetsBatchImpl,
+  type LibraryCreateInput,
+} from "@/lib/library/create-assets";
+import { listLibraryAssetsImpl } from "@/lib/library/list-assets";
 
-function formatError(e: unknown): string {
-  if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2021") {
-    return "Library tables are missing. Run npm run db:migrate:deploy with your production DATABASE_URL.";
-  }
+export type { LibraryAssetListItem } from "@/lib/library/types";
+export type { LibraryCreateInput } from "@/lib/library/create-assets";
+
+function formatActionError(e: unknown): string {
   return e instanceof Error ? e.message : "Something went wrong.";
 }
 
-export type LibraryAssetListItem = {
-  id: string;
-  title: string;
-  description: string;
-  scope: LibraryAssetScope;
-  kind: string;
-  filename: string | null;
-  blobUrl: string | null;
-  muxPlaybackId: string | null;
-  processingStatus: string;
-  processingError: string | null;
-  createdAt: string;
-  createdBy: { id: string; name: string | null; email: string };
-  isOwner: boolean;
-};
-
-export async function listLibraryAssets(): Promise<{
-  assets?: LibraryAssetListItem[];
-  error?: string;
-}> {
+export async function listLibraryAssets() {
   try {
     const session = await requireUser();
-    const userId = session.user.id;
-
-    const rows = await prisma.libraryAsset.findMany({
-      where: {
-        archived: false,
-        OR: [{ scope: "shared" }, { createdById: userId }],
-      },
-      orderBy: [{ scope: "asc" }, { updatedAt: "desc" }],
-      include: {
-        createdBy: { select: { id: true, name: true, email: true } },
-      },
-    });
-
-    return {
-      assets: rows.map((a) => ({
-        id: a.id,
-        title: a.title,
-        description: a.description,
-        scope: a.scope,
-        kind: a.kind,
-        filename: a.filename,
-        blobUrl: a.blobUrl,
-        muxPlaybackId: a.muxPlaybackId,
-        processingStatus: a.processingStatus,
-        processingError: a.processingError,
-        createdAt: a.createdAt.toISOString(),
-        createdBy: a.createdBy,
-        isOwner: a.createdById === userId,
-      })),
-    };
+    return listLibraryAssetsImpl(session.user.id);
   } catch (e) {
-    return { error: formatError(e) };
+    return { error: formatActionError(e) };
   }
 }
 
-export async function listLibraryAssetsForPicker(): Promise<{
-  assets?: LibraryAssetListItem[];
-  error?: string;
-}> {
+export async function listLibraryAssetsForPicker() {
   return listLibraryAssets();
 }
 
-export async function uploadLibraryAsset(
-  formData: FormData,
-): Promise<{ asset?: { id: string }; error?: string }> {
+export async function createLibraryAssetsBatch(
+  items: LibraryCreateInput[],
+  scopeRaw: LibraryAssetScope = "personal",
+) {
   try {
     const session = await requireUser();
-    const userId = session.user.id;
     const role = (session.user as { role?: string }).role;
+    return createLibraryAssetsBatchImpl(session.user.id, role, items, scopeRaw);
+  } catch (e) {
+    return { error: formatActionError(e) };
+  }
+}
 
-    const title = String(formData.get("title") ?? "").trim();
-    const description = String(formData.get("description") ?? "").trim();
-    const scopeRaw = String(formData.get("scope") ?? "personal");
-    const scope: LibraryAssetScope =
-      scopeRaw === "shared" && isStaff(role) ? "shared" : "personal";
-
-    if (!title) return { error: "Title is required." };
-    if (!description) return { error: "Description is required." };
-
-    const includeRecording = formData.get("includeRecording") !== "false";
-    const pastedText = String(formData.get("pastedText") ?? "").trim();
-    const sourceUrl = String(formData.get("sourceUrl") ?? "").trim();
-    const urlKind = String(formData.get("urlKind") ?? "webpage");
-
-    if (pastedText) {
-      const asset = await prisma.libraryAsset.create({
-        data: {
-          title,
-          description,
-          scope,
-          createdById: userId,
-          kind: "text",
-          filename: title.slice(0, 120),
-          extractedText: pastedText,
-          includeRecording: false,
-          processingStatus: "ready",
-        },
-      });
-      revalidatePath("/library");
-      return { asset: { id: asset.id } };
-    }
-
-    if (sourceUrl) {
-      if (!isHttpUrl(sourceUrl)) return { error: "Enter a valid http(s) URL." };
-      const asVideo = urlKind === "video" || isYouTubeUrl(sourceUrl);
-      const asset = await prisma.libraryAsset.create({
-        data: {
-          title,
-          description,
-          scope,
-          createdById: userId,
-          kind: asVideo ? "video" : "webpage",
-          filename: asVideo ? "Video link" : "Web page",
-          blobUrl: sourceUrl,
-          includeRecording: asVideo ? includeRecording : false,
-          extractedText: asVideo && isYouTubeUrl(sourceUrl) ? sourceUrl : null,
-          processingStatus: "pending",
-        },
-      });
-      void processLibraryAsset(asset.id);
-      revalidatePath("/library");
-      return { asset: { id: asset.id } };
-    }
-
-    const clientBlobUrl = String(formData.get("blobUrl") ?? "").trim();
-    const uploadedFilename = String(formData.get("uploadedFilename") ?? "").trim();
-    const uploadedMimeType = String(formData.get("uploadedMimeType") ?? "").trim();
-
-    if (clientBlobUrl) {
-      if (!isHttpUrl(clientBlobUrl)) {
-        return { error: "Invalid uploaded file URL." };
-      }
-      if (!uploadedFilename) {
-        return { error: "Missing uploaded file name." };
-      }
-
-      const kind = kindFromMime(uploadedMimeType, uploadedFilename);
-      let textContent: string | null = null;
-      if (kind === "text") {
-        try {
-          const res = await fetch(clientBlobUrl);
-          textContent = await res.text();
-        } catch {
-          textContent = null;
-        }
-      }
-
-      const asset = await prisma.libraryAsset.create({
-        data: {
-          title,
-          description,
-          scope,
-          createdById: userId,
-          kind,
-          filename: uploadedFilename,
-          mimeType: uploadedMimeType || null,
-          blobUrl: clientBlobUrl,
-          includeRecording: kind === "video" ? includeRecording : false,
-          processingStatus:
-            kind === "image" || (kind === "text" && textContent) ? "ready" : "pending",
-          ...(textContent ? { extractedText: textContent } : {}),
-        },
-      });
-
-      if (asset.processingStatus === "pending") {
-        void processLibraryAsset(asset.id);
-      }
-
-      revalidatePath("/library");
-      return { asset: { id: asset.id } };
-    }
+export async function uploadLibraryAsset(formData: FormData) {
+  try {
+    const session = await requireUser();
+    const role = (session.user as { role?: string }).role;
+    const scopeRaw = String(formData.get("scope") ?? "personal") as LibraryAssetScope;
 
     const file = formData.get("file");
-    if (!(file instanceof File) || file.size === 0) {
-      return { error: "Choose a file, paste text, or enter a URL." };
-    }
-    if (file.size > MAX_MEDIA_FILE_BYTES) {
-      return { error: "File exceeds 80MB limit." };
-    }
-
-    const kind = kindFromMime(file.type, file.name);
-    const textContent =
-      kind === "text" ? await file.text().catch(() => null) : null;
-
-    const blob = await put(`library/${userId}/${Date.now()}-${file.name}`, file, {
-      access: "public",
-    });
-
-    const asset = await prisma.libraryAsset.create({
-      data: {
-        title,
-        description,
-        scope,
-        createdById: userId,
-        kind,
-        filename: file.name,
-        mimeType: file.type || null,
-        blobUrl: blob.url,
-        includeRecording: kind === "video" ? includeRecording : false,
-        processingStatus:
-          kind === "image" || (kind === "text" && textContent) ? "ready" : "pending",
-        ...(textContent ? { extractedText: textContent } : {}),
-      },
-    });
-
-    if (asset.processingStatus === "pending") {
-      void processLibraryAsset(asset.id);
+    if (file instanceof File && file.size > 0 && !formData.get("blobUrl")) {
+      const missingBlob = blobStorageError();
+      if (missingBlob) return { error: missingBlob };
+      if (file.size > MAX_MEDIA_FILE_BYTES) {
+        return { error: "File exceeds 80MB limit." };
+      }
+      const blob = await put(
+        `library/${session.user.id}/${Date.now()}-${file.name}`,
+        file,
+        { access: "public" },
+      );
+      formData.set("blobUrl", blob.url);
+      formData.set("uploadedFilename", file.name);
+      formData.set("uploadedMimeType", file.type || "");
+      formData.set("fileSizeBytes", String(file.size));
     }
 
-    revalidatePath("/library");
-    return { asset: { id: asset.id } };
+    const result = await createLibraryAssetsBatchImpl(
+      session.user.id,
+      role,
+      [
+        {
+          title: String(formData.get("title") ?? ""),
+          description: String(formData.get("description") ?? ""),
+          scope: scopeRaw,
+          pastedText: String(formData.get("pastedText") ?? ""),
+          sourceUrl: String(formData.get("sourceUrl") ?? ""),
+          urlKind: String(formData.get("urlKind") ?? "webpage") as "webpage" | "video",
+          blobUrl: String(formData.get("blobUrl") ?? ""),
+          uploadedFilename: String(formData.get("uploadedFilename") ?? ""),
+          uploadedMimeType: String(formData.get("uploadedMimeType") ?? ""),
+          fileSizeBytes: Number(formData.get("fileSizeBytes")) || undefined,
+          includeRecording: formData.get("includeRecording") !== "false",
+        },
+      ],
+      scopeRaw,
+    );
+
+    if (result.error && !result.created) return { error: result.error };
+    return { asset: { id: "ok" } };
   } catch (e) {
-    return { error: formatError(e) };
+    return { error: formatActionError(e) };
   }
 }
 
 export async function updateLibraryAsset(
   assetId: string,
   data: { title?: string; description?: string; scope?: LibraryAssetScope },
-): Promise<{ error?: string }> {
+) {
   try {
     const session = await requireUser();
     const userId = session.user.id;
@@ -271,13 +131,11 @@ export async function updateLibraryAsset(
     revalidatePath("/library");
     return {};
   } catch (e) {
-    return { error: formatError(e) };
+    return { error: formatActionError(e) };
   }
 }
 
-export async function archiveLibraryAsset(
-  assetId: string,
-): Promise<{ error?: string }> {
+export async function archiveLibraryAsset(assetId: string) {
   try {
     const session = await requireUser();
     const userId = session.user.id;
@@ -296,13 +154,11 @@ export async function archiveLibraryAsset(
     revalidatePath("/library");
     return {};
   } catch (e) {
-    return { error: formatError(e) };
+    return { error: formatActionError(e) };
   }
 }
 
-export async function reprocessLibraryAsset(
-  assetId: string,
-): Promise<{ error?: string }> {
+export async function reprocessLibraryAsset(assetId: string) {
   try {
     const session = await requireUser();
     const asset = await prisma.libraryAsset.findUnique({ where: { id: assetId } });
@@ -322,11 +178,10 @@ export async function reprocessLibraryAsset(
     revalidatePath("/library");
     return {};
   } catch (e) {
-    return { error: formatError(e) };
+    return { error: formatActionError(e) };
   }
 }
 
-/** Staff-only: list all shared assets for admin overview */
 export async function requireLibraryStaff() {
   return requireStaff();
 }

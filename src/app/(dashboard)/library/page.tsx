@@ -1,5 +1,5 @@
 import { PageHeader } from "@/components/ui/PageHeader";
-import { LibraryBrowser } from "@/components/library/LibraryBrowser";
+import { LibraryExplorer } from "@/components/library/LibraryExplorer";
 import { requireUser } from "@/lib/auth-utils";
 import { isStaff } from "@/lib/auth/permissions";
 import { listLibraryAssets } from "@/lib/actions/library";
@@ -15,9 +15,9 @@ export default async function LibraryPage() {
     <>
       <PageHeader
         title="Library"
-        description="Upload PDFs, photos, videos, and other materials with descriptions. Use them yourself or attach them in AI Studio when building courses."
+        description="Browse materials by type. Upload PDFs, photos, videos, and links for yourself, your team, or AI Studio."
       />
-      <LibraryBrowser
+      <LibraryExplorer
         canPublishShared={isStaff(role)}
         initialAssets={result.assets ?? []}
       />
