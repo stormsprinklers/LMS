@@ -16,6 +16,8 @@ export async function validateCourseForPublish(courseId: string) {
             where: { archived: false },
             include: {
               exam: { include: { questions: { include: { options: true } } } },
+              lessonContent: true,
+              videoLesson: true,
             },
           },
         },
@@ -74,6 +76,41 @@ export async function validateCourseForPublish(courseId: string) {
               message: `Exam "${item.title}" has no passing score.`,
             });
           }
+        }
+      }
+      if (item.itemType === "LESSON") {
+        const html = item.lessonContent?.bodyHtml?.trim() ?? "";
+        const json = item.lessonContent?.bodyJson;
+        const hasJson =
+          json &&
+          typeof json === "object" &&
+          "content" in (json as object) &&
+          Array.isArray((json as { content?: unknown[] }).content) &&
+          ((json as { content: unknown[] }).content?.length ?? 0) > 0;
+        if (!html && !hasJson) {
+          issues.push({
+            level: "warning",
+            message: `Lesson "${item.title}" has no body content.`,
+          });
+        }
+      }
+      if (item.itemType === "VIDEO") {
+        const vl = item.videoLesson;
+        const hasPlayback =
+          vl?.muxPlaybackId?.trim() ||
+          vl?.videoUrl?.trim() ||
+          vl?.transcript?.trim();
+        if (!hasPlayback) {
+          issues.push({
+            level: "warning",
+            message: `Video "${item.title}" has no playback URL, Mux asset, or transcript.`,
+          });
+        }
+        if (vl?.status === "pending" && !vl?.muxPlaybackId && !vl?.videoUrl) {
+          issues.push({
+            level: "warning",
+            message: `Video "${item.title}" is still pending upload.`,
+          });
         }
       }
       if (item.status === "DRAFT") {

@@ -169,6 +169,82 @@ model User {
   courseItemProgress CourseItemProgress[]
   skillCheckCompletions     SkillCheckCompletion[]
   skillCheckEvaluations     SkillCheckCompletion[] @relation("SkillCheckEvaluator")
+  aiGenerationSessions AiGenerationSession[]
+}
+
+enum AiGenerationMode {
+  course
+  module
+  lesson
+}
+
+enum AiSessionStatus {
+  collecting
+  processing
+  generating
+  ready
+  applied
+  failed
+}
+
+enum AiSourceAssetKind {
+  pdf
+  pptx
+  text
+  audio
+  video
+  image
+  embed
+}
+
+enum AiAssetProcessingStatus {
+  pending
+  processing
+  ready
+  failed
+}
+
+model AiGenerationSession {
+  id             String            @id @default(cuid())
+  courseId       String
+  createdById    String
+  mode           AiGenerationMode
+  targetModuleId String?
+  status         AiSessionStatus   @default(collecting)
+  userPrompt     String?           @db.Text
+  blueprintJson  Json?
+  error          String?           @db.Text
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  course    Course          @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  createdBy User            @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  assets    AiSourceAsset[]
+}
+
+model AiSourceAsset {
+  id                String                  @id @default(cuid())
+  sessionId         String
+  kind              AiSourceAssetKind
+  filename          String?
+  mimeType          String?
+  blobUrl           String?
+  placementHint     String?                 @db.Text
+  includeRecording  Boolean                 @default(true)
+  extractedText     String?                 @db.Text
+  transcript        String?                 @db.Text
+  summary           String?                 @db.Text
+  durationSeconds   Int?
+  muxAssetId        String?
+  muxPlaybackId     String?
+  processingStatus  AiAssetProcessingStatus @default(pending)
+  processingError   String?                 @db.Text
+  sortOrder         Int                     @default(0)
+  createdAt         DateTime                @default(now())
+
+  session AiGenerationSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
 }
 
 model Account {
@@ -255,6 +331,7 @@ model Course {
   courseAssignments      CourseAssignment[]
   courseAdmins           CourseAdmin[]
   exams                  Exam[]
+  aiGenerationSessions AiGenerationSession[]
 }
 
 model CourseAdmin {

@@ -8,10 +8,12 @@ import { CurriculumTab } from "./tabs/CurriculumTab";
 import { SettingsTab } from "./tabs/SettingsTab";
 import { AssignmentsTab } from "./tabs/AssignmentsTab";
 import { PreviewPublishTab } from "./tabs/PreviewPublishTab";
+import { AiStudioTab } from "./tabs/AiStudioTab";
 
 const TABS = [
   { id: "info", label: "Course Info" },
   { id: "curriculum", label: "Curriculum" },
+  { id: "ai", label: "AI Studio" },
   { id: "settings", label: "Settings" },
   { id: "assignments", label: "Assignments" },
   { id: "preview", label: "Preview & Publish" },
@@ -119,6 +121,7 @@ export function CourseBuilderShell({
       {tab === "curriculum" && (
         <CurriculumTab course={course} allowDestructive={allowDestructive} />
       )}
+      {tab === "ai" && <AiStudioTab course={course} />}
       {tab === "settings" && <SettingsTab course={course} />}
       {tab === "assignments" && <AssignmentsTab courseId={course.id} users={users} />}
       {tab === "preview" && <PreviewPublishTab course={course} />}

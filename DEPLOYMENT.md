@@ -34,7 +34,7 @@ The error `404: NOT_FOUND` with an ID like `sfo1::...` is **Vercel’s platform*
 
    Then redeploy on Vercel. Optional: set `RUN_PRISMA_MIGRATE=1` on Vercel only if you intentionally want migrations during a build (not recommended on Neon).
 
-   Optional: `MUX_TOKEN_ID`, `MUX_TOKEN_SECRET`, `MUX_WEBHOOK_SECRET`, `BLOB_READ_WRITE_TOKEN`
+   Optional: `MUX_TOKEN_ID`, `MUX_TOKEN_SECRET`, `MUX_WEBHOOK_SECRET`, `BLOB_READ_WRITE_TOKEN`, `OPENAI_API_KEY` (AI Studio in course builder)
 
    **If the build log shows `Environment variable not found: DATABASE_URL`**, the deploy never completed — add `DATABASE_URL` and redeploy.
 

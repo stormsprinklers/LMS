@@ -13,6 +13,11 @@ function resolveCourseItemId(passthrough: string | undefined): string | null {
   return passthrough.slice("course-item:".length);
 }
 
+function resolveAiSourceAssetId(passthrough: string | undefined): string | null {
+  if (!passthrough?.startsWith("ai-asset:")) return null;
+  return passthrough.slice("ai-asset:".length);
+}
+
 export async function POST(request: Request) {
   const secret = process.env.MUX_WEBHOOK_SECRET;
   if (secret) {
@@ -31,6 +36,19 @@ export async function POST(request: Request) {
     const playbackId = data.playback_ids?.[0]?.id;
     const assetId = data.id;
     const duration = data.duration ? Math.round(data.duration) : null;
+
+    const aiAssetId = resolveAiSourceAssetId(passthrough);
+    if (aiAssetId && playbackId) {
+      await prisma.aiSourceAsset.update({
+        where: { id: aiAssetId },
+        data: {
+          muxAssetId: assetId,
+          muxPlaybackId: playbackId,
+          durationSeconds: duration,
+          processingStatus: "ready",
+        },
+      });
+    }
 
     const courseItemId = resolveCourseItemId(passthrough);
     if (courseItemId && playbackId) {
