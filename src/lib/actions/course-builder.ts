@@ -331,7 +331,7 @@ export async function updateCourseItem(
   });
   await markUnpublished(item.courseId);
   revalidateCourse(item.courseId);
-  return { success: true };
+  return { success: true as const };
 }
 
 export async function updateLessonContent(
@@ -340,7 +340,7 @@ export async function updateLessonContent(
     bodyJson?: unknown;
     bodyHtml?: string;
     completionRule?: string;
-    minimumTimeSeconds?: number;
+    minimumTimeSeconds?: number | null;
   },
 ) {
   await requireManageCourseItem(itemId);
@@ -348,21 +348,38 @@ export async function updateLessonContent(
     where: { id: itemId },
     include: { lessonContent: true },
   });
-  if (!item?.lessonContentId) return { error: "Not a lesson item" };
+  if (!item) return { error: "Item not found." };
+  if (item.itemType !== "LESSON") return { error: "Not a lesson item." };
 
-  await prisma.lessonContent.update({
-    where: { id: item.lessonContentId },
-    data: {
-      bodyJson: data.bodyJson as Prisma.InputJsonValue,
-      bodyHtml: data.bodyHtml,
-      completionRule: data.completionRule,
-      minimumTimeSeconds: data.minimumTimeSeconds,
-    },
-  });
+  const lessonData = {
+    bodyJson: (data.bodyJson ?? EMPTY_LESSON_DOC) as Prisma.InputJsonValue,
+    bodyHtml: data.bodyHtml ?? "",
+    completionRule: data.completionRule ?? item.completionRule ?? "viewed",
+    minimumTimeSeconds: data.minimumTimeSeconds ?? null,
+  };
+
+  if (!item.lessonContentId) {
+    const lc = await prisma.lessonContent.create({ data: lessonData });
+    await prisma.courseItem.update({
+      where: { id: itemId },
+      data: { lessonContentId: lc.id },
+    });
+  } else {
+    await prisma.lessonContent.update({
+      where: { id: item.lessonContentId },
+      data: lessonData,
+    });
+  }
+
   await markUnpublished(item.courseId);
   revalidateCourse(item.courseId);
-  return { success: true };
+  return { success: true as const };
 }
+
+const EMPTY_LESSON_DOC = {
+  type: "doc",
+  content: [{ type: "paragraph" }],
+};
 
 export async function updateVideoLessonContent(
   itemId: string,

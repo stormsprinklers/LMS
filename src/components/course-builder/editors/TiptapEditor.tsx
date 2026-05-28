@@ -3,17 +3,20 @@
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
-import { useEffect } from "react";
+import { forwardRef, useEffect, useImperativeHandle } from "react";
 
-export function TiptapEditor({
-  content,
-  onChange,
-  placeholder = "Write lesson content…",
-}: {
-  content: unknown;
-  onChange: (json: unknown, html: string) => void;
-  placeholder?: string;
-}) {
+export type TiptapEditorHandle = {
+  getContent: () => { json: unknown; html: string } | null;
+};
+
+export const TiptapEditor = forwardRef<
+  TiptapEditorHandle,
+  {
+    content: unknown;
+    onChange: (json: unknown, html: string) => void;
+    placeholder?: string;
+  }
+>(function TiptapEditor({ content, onChange, placeholder = "Write lesson content…" }, ref) {
   const editor = useEditor({
     extensions: [
       StarterKit,
@@ -24,6 +27,9 @@ export function TiptapEditor({
     onUpdate: ({ editor: ed }) => {
       onChange(ed.getJSON(), ed.getHTML());
     },
+    onBlur: ({ editor: ed }) => {
+      onChange(ed.getJSON(), ed.getHTML());
+    },
     editorProps: {
       attributes: {
         class:
@@ -32,15 +38,28 @@ export function TiptapEditor({
     },
   });
 
+  useImperativeHandle(ref, () => ({
+    getContent: () => {
+      if (!editor) return null;
+      return { json: editor.getJSON(), html: editor.getHTML() };
+    },
+  }));
+
   useEffect(() => {
     if (!editor) return;
+    const next =
+      content && typeof content === "object"
+        ? content
+        : { type: "doc", content: [{ type: "paragraph" }] };
     const current = editor.getJSON();
-    if (content && JSON.stringify(current) !== JSON.stringify(content)) {
-      editor.commands.setContent(content as object);
+    if (JSON.stringify(current) !== JSON.stringify(next)) {
+      editor.commands.setContent(next as object, { emitUpdate: false });
     }
   }, [content, editor]);
 
-  if (!editor) return <div className="min-h-[200px] rounded-lg border bg-storm-light-grey/30" />;
+  if (!editor) {
+    return <div className="min-h-[200px] rounded-lg border bg-storm-light-grey/30" />;
+  }
 
   return (
     <div className="rounded-lg border border-storm-light-blue/60 bg-white">
@@ -69,7 +88,7 @@ export function TiptapEditor({
       <EditorContent editor={editor} />
     </div>
   );
-}
+});
 
 function ToolbarBtn({
   onClick,

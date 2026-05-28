@@ -1,13 +1,15 @@
 "use client";
 
 import { updateCourseItem, updateLessonContent } from "@/lib/actions/course-builder";
-import { TiptapEditor } from "./TiptapEditor";
+import { TiptapEditor, type TiptapEditorHandle } from "./TiptapEditor";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { ContentStatus } from "@prisma/client";
 
 const inputClass =
   "mt-1 w-full min-h-10 rounded-lg border border-storm-light-blue/60 px-3 py-2 text-sm";
+
+const EMPTY_DOC = { type: "doc", content: [{ type: "paragraph" }] };
 
 type Item = {
   id: string;
@@ -24,30 +26,66 @@ type Item = {
   } | null;
 };
 
-export function LessonItemEditor({ item }: { item: Item }) {
+export function LessonItemEditor({
+  item,
+  onSaved,
+}: {
+  item: Item;
+  onSaved?: () => void;
+}) {
   const router = useRouter();
-  const [bodyJson, setBodyJson] = useState(item.lessonContent?.bodyJson);
+  const editorRef = useRef<TiptapEditorHandle>(null);
+  const initialJson = item.lessonContent?.bodyJson ?? EMPTY_DOC;
+  const [bodyJson, setBodyJson] = useState<unknown>(initialJson);
   const [bodyHtml, setBodyHtml] = useState(item.lessonContent?.bodyHtml ?? "");
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState(false);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setBusy(true);
+    setError("");
+    setSaved(false);
+
+    const snapshot = editorRef.current?.getContent();
+    const json = snapshot?.json ?? bodyJson ?? EMPTY_DOC;
+    const html = snapshot?.html ?? bodyHtml;
+
     const fd = new FormData(e.currentTarget);
-    await updateCourseItem(item.id, {
+    const completionRule = String(fd.get("completionRule"));
+    const minimumRaw = fd.get("minimumTimeSeconds");
+    const minimumTimeSeconds =
+      minimumRaw === "" || minimumRaw === null
+        ? null
+        : Number(minimumRaw);
+
+    const itemResult = await updateCourseItem(item.id, {
       title: String(fd.get("title")),
       isRequired: fd.get("isRequired") === "on",
       estimatedMinutes: Number(fd.get("estimatedMinutes")) || undefined,
-      completionRule: String(fd.get("completionRule")),
+      completionRule,
       status: String(fd.get("status")) as ContentStatus,
     });
-    await updateLessonContent(item.id, {
-      bodyJson,
-      bodyHtml,
-      completionRule: String(fd.get("completionRule")),
-      minimumTimeSeconds: Number(fd.get("minimumTimeSeconds")) || undefined,
+
+    const contentResult = await updateLessonContent(item.id, {
+      bodyJson: json,
+      bodyHtml: html,
+      completionRule,
+      minimumTimeSeconds: minimumTimeSeconds ?? undefined,
     });
+
     setBusy(false);
+
+    if ("error" in (contentResult ?? {}) && contentResult?.error) {
+      setError(contentResult.error);
+      return;
+    }
+
+    setBodyJson(json);
+    setBodyHtml(html);
+    setSaved(true);
+    onSaved?.();
     router.refresh();
   }
 
@@ -60,10 +98,13 @@ export function LessonItemEditor({ item }: { item: Item }) {
       <div>
         <p className="text-sm font-medium text-storm-navy">Content</p>
         <TiptapEditor
-          content={bodyJson}
+          ref={editorRef}
+          key={item.id}
+          content={initialJson}
           onChange={(json, html) => {
             setBodyJson(json);
             setBodyHtml(html);
+            setSaved(false);
           }}
         />
       </div>
@@ -112,10 +153,14 @@ export function LessonItemEditor({ item }: { item: Item }) {
           <option value="PUBLISHED">Published</option>
         </select>
       </label>
+      {error && <p className="text-sm text-red-600">{error}</p>}
+      {saved && !error && (
+        <p className="text-sm text-green-700">Lesson saved.</p>
+      )}
       <button
         type="submit"
         disabled={busy}
-        className="min-h-10 w-full rounded-lg bg-storm-medium-blue text-sm font-semibold text-white"
+        className="min-h-10 w-full rounded-lg bg-storm-medium-blue text-sm font-semibold text-white disabled:opacity-50"
       >
         {busy ? "Saving…" : "Save lesson"}
       </button>

@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { getCourseItemDetail } from "@/lib/repositories/course-builder";
+import { useCallback, useEffect, useState } from "react";
 import type { CourseBuilderCourse } from "@/lib/course-builder/types";
 import { ModuleEditor } from "./editors/ModuleEditor";
 import { LessonItemEditor } from "./editors/LessonItemEditor";
@@ -25,20 +24,43 @@ export function BuilderDrawer({
   selection: Selection;
   onClose: () => void;
 }) {
-  const [itemDetail, setItemDetail] = useState<Awaited<
-    ReturnType<typeof getCourseItemDetail>
-  > | null>(null);
+  const [itemDetail, setItemDetail] = useState<Record<string, unknown> | null>(null);
+  const [loadingItem, setLoadingItem] = useState(false);
+  const [fetchError, setFetchError] = useState("");
+
+  const selectedItemId = selection?.kind === "item" ? selection.itemId : null;
+  const selectedModuleId = selection?.kind === "module" ? selection.moduleId : null;
+
+  const loadItemDetail = useCallback(async (itemId: string) => {
+    setLoadingItem(true);
+    setFetchError("");
+    try {
+      const res = await fetch(`/api/admin/course-items/${itemId}`);
+      const data = await res.json();
+      if (!res.ok) {
+        setItemDetail(null);
+        setFetchError(data.error ?? "Could not load item.");
+        return;
+      }
+      setItemDetail(data);
+    } catch {
+      setItemDetail(null);
+      setFetchError("Could not load item.");
+    } finally {
+      setLoadingItem(false);
+    }
+  }, []);
 
   useEffect(() => {
-    if (selection?.kind === "item") {
-      fetch(`/api/admin/course-items/${selection.itemId}`)
-        .then((r) => r.json())
-        .then(setItemDetail)
-        .catch(() => setItemDetail(null));
+    if (selectedItemId) {
+      setItemDetail(null);
+      void loadItemDetail(selectedItemId);
     } else {
       setItemDetail(null);
+      setFetchError("");
+      setLoadingItem(false);
     }
-  }, [selection]);
+  }, [selectedItemId, loadItemDetail]);
 
   if (!selection) {
     return (
@@ -55,6 +77,9 @@ export function BuilderDrawer({
       ? course.modules.find((m) => m.id === selection.moduleId)
       : null;
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const detail = itemDetail as any;
+
   return (
     <aside className="fixed inset-y-0 right-0 z-40 flex w-full max-w-md flex-col border-l border-storm-light-blue/60 bg-white shadow-xl lg:static lg:max-h-[calc(100vh-12rem)] lg:rounded-xl lg:border lg:shadow-none">
       <div className="flex items-center justify-between border-b px-4 py-3">
@@ -67,29 +92,36 @@ export function BuilderDrawer({
       </div>
       <div className="flex-1 overflow-y-auto p-4">
         {selection.kind === "module" && mod && (
-          <ModuleEditor module={mod} courseId={course.id} />
+          <ModuleEditor key={selectedModuleId} module={mod} courseId={course.id} />
         )}
-        {selection.kind === "item" && itemDetail && (
+        {selection.kind === "item" && loadingItem && (
+          <p className="text-sm text-storm-navy/60">Loading…</p>
+        )}
+        {selection.kind === "item" && fetchError && (
+          <p className="text-sm text-red-600">{fetchError}</p>
+        )}
+        {selection.kind === "item" && detail && !loadingItem && (
           <>
-            {itemDetail.itemType === "LESSON" && (
-              <LessonItemEditor item={itemDetail} />
+            {detail.itemType === "LESSON" && (
+              <LessonItemEditor
+                key={detail.id as string}
+                item={detail}
+                onSaved={() => void loadItemDetail(detail.id as string)}
+              />
             )}
-            {itemDetail.itemType === "VIDEO" && (
-              <VideoItemEditor item={itemDetail} />
+            {detail.itemType === "VIDEO" && (
+              <VideoItemEditor key={detail.id as string} item={detail} />
             )}
-            {(itemDetail.itemType === "EXAM" || itemDetail.itemType === "QUIZ") && (
-              <ExamItemEditor item={itemDetail} />
+            {(detail.itemType === "EXAM" || detail.itemType === "QUIZ") && (
+              <ExamItemEditor key={detail.id as string} item={detail} />
             )}
-            {itemDetail.itemType === "SKILL_CHECK" && (
-              <SkillCheckEditor item={itemDetail} />
+            {detail.itemType === "SKILL_CHECK" && (
+              <SkillCheckEditor key={detail.id as string} item={detail} />
             )}
-            {itemDetail.itemType === "SCENARIO" && (
-              <ScenarioEditor item={itemDetail} />
+            {detail.itemType === "SCENARIO" && (
+              <ScenarioEditor key={detail.id as string} item={detail} />
             )}
           </>
-        )}
-        {selection.kind === "item" && !itemDetail && (
-          <p className="text-sm text-storm-navy/60">Loading…</p>
         )}
       </div>
     </aside>
