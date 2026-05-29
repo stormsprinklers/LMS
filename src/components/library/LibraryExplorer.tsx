@@ -9,6 +9,7 @@ import {
 import { fetchLibraryAssets } from "@/lib/library/client";
 import type { LibraryTagListItem } from "@/lib/library/types";
 import { LibraryTagChip } from "@/components/library/LibraryTagChip";
+import { LibraryTagDropdown } from "@/components/library/LibraryTagDropdown";
 import {
   LIBRARY_FOLDERS,
   assetFolder,
@@ -157,6 +158,19 @@ export function LibraryExplorer({
         </nav>
 
         <div className="flex flex-wrap items-center gap-2">
+          {tags.length > 0 && (
+            <div className="w-full min-w-[10rem] sm:w-44 md:w-52">
+              <LibraryTagDropdown
+                mode="single"
+                tags={tags}
+                value={tagFilter}
+                onChange={(tagId) => {
+                  setTagFilter(tagId);
+                  if (tagId) setCurrentFolder(null);
+                }}
+              />
+            </div>
+          )}
           {(["all", "shared", "personal"] as const).map((f) => (
             <button
               key={f}
@@ -223,44 +237,6 @@ export function LibraryExplorer({
               </li>
             ))}
           </ul>
-          {tags.length > 0 && (
-            <>
-              <p className="mt-4 px-2 py-1 text-xs font-semibold uppercase tracking-wide text-storm-navy/50">
-                Tags
-              </p>
-              <div className="space-y-1 px-1">
-                <button
-                  type="button"
-                  onClick={() => setTagFilter(null)}
-                  className={`w-full rounded-md px-2 py-1.5 text-left text-sm ${
-                    tagFilter === null
-                      ? "bg-storm-medium-blue/15 font-medium text-storm-navy"
-                      : "text-storm-navy/80 hover:bg-storm-light-blue/20"
-                  }`}
-                >
-                  All tags
-                </button>
-                {tags.map((tag) => (
-                  <button
-                    key={tag.id}
-                    type="button"
-                    onClick={() => {
-                      setTagFilter(tag.id);
-                      setCurrentFolder(null);
-                    }}
-                    className={`flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm ${
-                      tagFilter === tag.id
-                        ? "bg-storm-medium-blue/15 font-medium text-storm-navy"
-                        : "text-storm-navy/80 hover:bg-storm-light-blue/20"
-                    }`}
-                  >
-                    <LibraryTagChip tag={tag} />
-                    <span className="ml-2 text-xs text-storm-navy/45">{tag.assetCount}</span>
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
         </aside>
 
         {/* Main pane */}

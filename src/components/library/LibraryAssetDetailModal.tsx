@@ -16,7 +16,7 @@ import { fetchLibraryTags, saveLibraryAssetTags } from "@/lib/library/client";
 import type { LibraryTagListItem } from "@/lib/library/types";
 import { kindLabel } from "@/lib/media/asset-utils";
 import { Badge } from "@/components/ui/Badge";
-import { LibraryTagChip } from "@/components/library/LibraryTagChip";
+import { LibraryTagDropdown } from "@/components/library/LibraryTagDropdown";
 import { formatDate } from "@/lib/utils";
 import {
   Download,
@@ -44,7 +44,7 @@ export function LibraryAssetDetailModal({
 }) {
   const [allTags, setAllTags] = useState<LibraryTagListItem[]>([]);
   const [selectedTagIds, setSelectedTagIds] = useState(asset.tags.map((t) => t.id));
-  const [tagsDirty, setTagsDirty] = useState(false);
+  const [tagsSaving, setTagsSaving] = useState(false);
 
   useEffect(() => {
     void fetchLibraryTags().then((r) => {
@@ -54,25 +54,20 @@ export function LibraryAssetDetailModal({
 
   useEffect(() => {
     setSelectedTagIds(asset.tags.map((t) => t.id));
-    setTagsDirty(false);
   }, [asset.id, asset.tags]);
 
-  function toggleTag(tagId: string) {
-    setSelectedTagIds((prev) =>
-      prev.includes(tagId) ? prev.filter((id) => id !== tagId) : [...prev, tagId],
-    );
-    setTagsDirty(true);
-  }
-
-  async function saveTags() {
-    setBusy(true);
-    const result = await saveLibraryAssetTags(asset.id, selectedTagIds);
-    setBusy(false);
+  async function handleTagChange(ids: string[]) {
+    const previous = selectedTagIds;
+    setSelectedTagIds(ids);
+    setTagsSaving(true);
+    setError("");
+    const result = await saveLibraryAssetTags(asset.id, ids);
+    setTagsSaving(false);
     if (result.error) {
+      setSelectedTagIds(previous);
       setError(result.error);
       return;
     }
-    setTagsDirty(false);
     onRefresh();
   }
 
@@ -128,33 +123,23 @@ export function LibraryAssetDetailModal({
 
           {allTags.length > 0 && (
             <div className="space-y-2">
-              <p className="text-sm font-medium text-storm-navy">Tags</p>
-              <div className="flex flex-wrap gap-2">
-                {allTags.map((tag) => (
-                  <label
-                    key={tag.id}
-                    className="inline-flex cursor-pointer items-center gap-1.5"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedTagIds.includes(tag.id)}
-                      onChange={() => toggleTag(tag.id)}
-                      disabled={busy}
-                    />
-                    <LibraryTagChip tag={tag} active={selectedTagIds.includes(tag.id)} />
-                  </label>
-                ))}
+              <div className="flex items-center gap-2">
+                <LibraryTagDropdown
+                  mode="multiple"
+                  tags={allTags}
+                  value={selectedTagIds}
+                  onChange={(ids) => void handleTagChange(ids)}
+                  disabled={busy || tagsSaving}
+                  label="Tags"
+                  placement="top"
+                />
+                {tagsSaving && (
+                  <span className="flex items-center gap-1 text-xs text-storm-navy/55">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Saving…
+                  </span>
+                )}
               </div>
-              {tagsDirty && (
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void saveTags()}
-                  className="rounded-lg border px-3 py-1.5 text-sm font-medium"
-                >
-                  Save tags
-                </button>
-              )}
             </div>
           )}
 

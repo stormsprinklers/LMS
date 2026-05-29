@@ -13,7 +13,7 @@ import {
 } from "@/lib/library/folders";
 import { fetchLibraryTags, saveLibraryAssetsBatch } from "@/lib/library/client";
 import type { LibraryTagListItem } from "@/lib/library/types";
-import { LibraryTagChip } from "@/components/library/LibraryTagChip";
+import { LibraryTagDropdown } from "@/components/library/LibraryTagDropdown";
 import type { LibraryCreateInput } from "@/lib/library/create-assets";
 import { uploadLibraryFileToBlob } from "@/lib/library/upload-client";
 import { formatBlobUploadError } from "@/lib/media/blob-config";
@@ -398,29 +398,15 @@ export function LibraryUploadModal({
             )}
 
             {availableTags.length > 0 && (
-              <div className="space-y-2 text-sm">
-                <span className="font-medium text-storm-navy">Tags</span>
-                <span className="ml-1 text-storm-navy/50">(optional)</span>
-                <div className="flex flex-wrap gap-2">
-                  {availableTags.map((tag) => (
-                    <label key={tag.id} className="inline-flex cursor-pointer items-center gap-1.5">
-                      <input
-                        type="checkbox"
-                        checked={selectedTagIds.includes(tag.id)}
-                        onChange={() =>
-                          setSelectedTagIds((prev) =>
-                            prev.includes(tag.id)
-                              ? prev.filter((id) => id !== tag.id)
-                              : [...prev, tag.id],
-                          )
-                        }
-                        disabled={busy}
-                      />
-                      <LibraryTagChip tag={tag} active={selectedTagIds.includes(tag.id)} />
-                    </label>
-                  ))}
-                </div>
-              </div>
+              <LibraryTagDropdown
+                mode="multiple"
+                tags={availableTags}
+                value={selectedTagIds}
+                onChange={setSelectedTagIds}
+                disabled={busy}
+                label="Tags (optional)"
+                placement="top"
+              />
             )}
 
             {uploadType === "video" && (
