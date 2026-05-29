@@ -106,10 +106,9 @@ export function LibraryAssetDetailModal({
                 Open link
               </a>
             )}
-            {libraryAssetCanDownload(asset) && asset.blobUrl && (
+            {libraryAssetCanDownload(asset) && (
               <a
-                href={asset.blobUrl}
-                download
+                href={`/api/library/assets/${asset.id}/download`}
                 className="inline-flex items-center gap-1 rounded-lg bg-storm-navy px-3 py-2 text-sm font-semibold text-white no-underline"
               >
                 <Download className="h-4 w-4" />
