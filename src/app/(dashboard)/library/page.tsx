@@ -18,7 +18,7 @@ export default async function LibraryPage() {
     <>
       <PageHeader
         title="Library"
-        description="Browse materials by type or tag. Upload PDFs, photos, videos, and links for yourself, your team, or AI Studio."
+        description="Browse materials by tag. Upload PDFs, photos, videos, and links for yourself, your team, or AI Studio."
       />
       {isAdmin(role) && (
         <div className="mb-6">

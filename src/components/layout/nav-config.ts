@@ -3,11 +3,9 @@ import {
   Award,
   BookOpen,
   ClipboardCheck,
-  FileText,
   FolderOpen,
   GraduationCap,
   LayoutDashboard,
-  PlayCircle,
 } from "lucide-react";
 
 export type NavItem = {
@@ -19,9 +17,7 @@ export type NavItem = {
 export const learnerNavItems: NavItem[] = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/courses", label: "Courses", icon: GraduationCap },
-  { href: "/training", label: "Video Training", icon: PlayCircle },
   { href: "/library", label: "Library", icon: FolderOpen },
-  { href: "/manuals", label: "Manuals", icon: FileText },
   { href: "/exams", label: "Exams", icon: ClipboardCheck },
   { href: "/certifications", label: "Certifications", icon: Award },
 ];
@@ -33,8 +29,8 @@ export const adminNavItem: NavItem = {
 };
 
 export const gradingNavItem: NavItem = {
-  href: "/admin/grading",
-  label: "Grading",
+  href: "/admin/grades?view=pending",
+  label: "Grades",
   icon: BookOpen,
 };
 
@@ -43,19 +39,17 @@ export const adminSubNavItems = [
   { href: "/admin/courses", label: "Courses" },
   { href: "/admin/exams", label: "Exams" },
   { href: "/admin/grades", label: "Grades" },
-  { href: "/admin/grading", label: "Grading" },
   { href: "/admin/skill-checks", label: "Skill Checks" },
   { href: "/admin/users", label: "Users" },
   { href: "/admin/certifications", label: "Certifications" },
   { href: "/library", label: "Library" },
-  { href: "/admin/media", label: "Media (legacy)" },
   { href: "/admin/archived", label: "Archived" },
 ] as const;
 
 const managerSubNavItems = [
   { href: "/admin/courses", label: "Courses" },
   { href: "/admin/exams", label: "Exams" },
-  { href: "/admin/grading", label: "Grading" },
+  { href: "/admin/grades", label: "Grades" },
 ] as const;
 
 export function getMainNavItems(role?: string): NavItem[] {
@@ -72,12 +66,19 @@ export function getAdminSubNav(role?: string) {
   if (role === "ADMIN") return [...adminSubNavItems];
   if (role === "MANAGER") return [...managerSubNavItems];
   if (role === "COURSE_ADMIN") {
-    return adminSubNavItems.filter((n) => n.href === "/admin/grading");
+    return adminSubNavItems.filter((n) => n.href === "/admin/grades");
   }
   return [];
 }
 
 export function isNavActive(pathname: string, href: string) {
   if (href === "/") return pathname === "/";
+  if (href === "/admin/grades") {
+    return (
+      pathname === "/admin/grades" ||
+      pathname.startsWith("/admin/grades/") ||
+      pathname.startsWith("/admin/grading/")
+    );
+  }
   return pathname === href || pathname.startsWith(`${href}/`);
 }

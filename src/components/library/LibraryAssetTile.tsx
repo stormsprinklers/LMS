@@ -1,12 +1,14 @@
 "use client";
 
 import type { LibraryAssetListItem } from "@/lib/actions/library";
+import type { LibraryTagListItem } from "@/lib/library/types";
 import {
   assetDisplaySize,
   assetPreviewThumbnail,
 } from "@/lib/library/folders";
 import { kindLabel } from "@/lib/media/asset-utils";
 import { LibraryTagList } from "@/components/library/LibraryTagChip";
+import { LibraryTagChip } from "@/components/library/LibraryTagChip";
 import {
   FileText,
   Film,
@@ -82,6 +84,36 @@ export function LibraryAssetTile({
       <p className="mt-0.5 truncate text-xs text-storm-navy/50">
         {size}
         {asset.filename ? ` · ${asset.filename}` : ""}
+      </p>
+    </button>
+  );
+}
+
+export function LibraryTagTile({
+  tag,
+  count,
+  onClick,
+  active,
+}: {
+  tag: Pick<LibraryTagListItem, "id" | "name" | "color">;
+  count: number;
+  onClick: () => void;
+  active?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex flex-col items-center rounded-lg border p-4 text-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-storm-medium-blue/40 ${
+        active
+          ? "border-storm-medium-blue bg-storm-medium-blue/10"
+          : "border-storm-light-blue/50 bg-white hover:border-storm-medium-blue/60 hover:bg-storm-light-blue/10"
+      }`}
+    >
+      <LibraryTagChip tag={tag} active={active} />
+      <p className="mt-3 text-sm font-semibold text-storm-navy">{tag.name}</p>
+      <p className="mt-0.5 text-xs text-storm-navy/50">
+        {count} item{count === 1 ? "" : "s"}
       </p>
     </button>
   );

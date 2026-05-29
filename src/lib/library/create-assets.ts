@@ -22,6 +22,8 @@ export type LibraryCreateInput = {
   uploadedMimeType?: string;
   fileSizeBytes?: number;
   includeRecording?: boolean;
+  /** Additional tags for this item (merged with batch-level tags on create). */
+  tagIds?: string[];
 };
 
 type CreateContext = {
@@ -189,15 +191,26 @@ export async function createLibraryAssetsBatchImpl(
     const resolvedTitles = await Promise.all(items.map((item) => resolveLibraryTitle(item)));
     const titles = uniquifyTitles(resolvedTitles);
 
-    const ctx: CreateContext = { userId, scope, tagIds: validTagIds };
     const errors: string[] = [];
     let created = 0;
 
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
+      let assetTagIds = validTagIds;
+      if (item.tagIds?.length) {
+        try {
+          assetTagIds = await validateTagIds([...validTagIds, ...item.tagIds]);
+        } catch (e) {
+          errors.push(
+            `${titles[i]}: ${e instanceof Error ? e.message : "Invalid tags."}`,
+          );
+          continue;
+        }
+      }
+
       const result = await createOneLibraryAsset(
         { ...item, scope },
-        ctx,
+        { userId, scope, tagIds: assetTagIds },
         titles[i],
       );
       if ("error" in result) {

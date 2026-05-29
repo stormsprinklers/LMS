@@ -262,6 +262,7 @@ export async function saveAttemptGrades(
     }
   }
 
+  revalidatePath("/admin/grades");
   revalidatePath("/admin/grading");
   revalidatePath(`/admin/grading/${attemptId}`);
   revalidatePath("/exams");

@@ -8,6 +8,7 @@ import type { BlueprintIssue } from "@/lib/ai/validate-blueprint";
 import {
   applyCourseBlueprint,
   approveStructureAndGenerateContent,
+  cancelAiGenerationSession,
   createAiSession,
   generateCourseStructure,
   generateNextBlueprintItem,
@@ -31,6 +32,36 @@ import { ItemTypePicker } from "../ai/ItemTypePicker";
 import { FileInput } from "@/components/ui/FileInput";
 import { YouTubeIframe } from "@/components/video/YouTubeIframe";
 import { isYouTubeUrl } from "@/lib/video/youtube";
+import { validateBlueprint } from "@/lib/ai/validate-blueprint";
+import { Square } from "lucide-react";
+
+function formatSkippedItemWarning(item: {
+  title: string;
+  moduleTitle: string;
+  reason?: string;
+}): string {
+  const base = `"${item.title}" (${item.moduleTitle})`;
+  if (item.reason?.trim()) {
+    const short =
+      item.reason.length > 200 ? `${item.reason.slice(0, 200)}…` : item.reason;
+    return `${base}: ${short}`;
+  }
+  return `${base}: validation failed after multiple attempts — fill in manually.`;
+}
+
+function assetsNeedProcessing(
+  assets: { processingStatus: string; kind: string }[],
+): boolean {
+  return assets.some(
+    (a) =>
+      (a.processingStatus === "pending" || a.processingStatus === "failed") &&
+      (a.kind === "pdf" ||
+        a.kind === "pptx" ||
+        a.kind === "video" ||
+        a.kind === "audio" ||
+        a.kind === "webpage"),
+  );
+}
 
 type WizardStep =
   | "intent"
@@ -92,7 +123,11 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
     label?: string;
   } | null>(null);
   const [generationWarnings, setGenerationWarnings] = useState<string[]>([]);
+  const [notice, setNotice] = useState("");
+  const [stopping, setStopping] = useState(false);
   const contentGenStarted = useRef(false);
+  const contentGenCancelledRef = useRef(false);
+  const stopRequestedRef = useRef(false);
 
   const pollSession = useCallback(async (id: string) => {
     const res = await fetch(`/api/admin/ai-sessions/${id}`);
@@ -120,16 +155,19 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
     if (step !== "generating_content" || !sessionId) return;
     if (contentGenStarted.current) return;
     contentGenStarted.current = true;
-
-    let cancelled = false;
+    contentGenCancelledRef.current = false;
 
     async function runContentGeneration() {
       setBusy(true);
       setError("");
+      setNotice("");
       setGenerationWarnings([]);
       try {
-        while (!cancelled) {
+        while (!contentGenCancelledRef.current) {
           const result = await generateNextBlueprintItem(sessionId!);
+          if (contentGenCancelledRef.current || result.cancelled) {
+            break;
+          }
           if (result.error) {
             setError(result.error);
             break;
@@ -139,7 +177,7 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
           if (result.skippedItem) {
             setGenerationWarnings((prev) => [
               ...prev,
-              `Could not write "${result.skippedItem!.title}" (${result.skippedItem!.moduleTitle}). Leave the outline and fill it in manually.`,
+              formatSkippedItemWarning(result.skippedItem!),
             ]);
           }
           if (result.done) {
@@ -155,9 +193,61 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
 
     void runContentGeneration();
     return () => {
-      cancelled = true;
+      contentGenCancelledRef.current = true;
+      contentGenStarted.current = false;
     };
   }, [step, sessionId]);
+
+  function confirmStopGeneration(): boolean {
+    if (step === "generating_content") {
+      return window.confirm(
+        "Stop writing content?\n\nItems already written will be kept so you can review and apply them. Nothing still being written will be saved.",
+      );
+    }
+    if (step === "processing") {
+      return window.confirm(
+        "Stop processing sources?\n\nProcessing may continue in the background, but you can leave this step now.",
+      );
+    }
+    return window.confirm(
+      "Stop AI generation?\n\nIf the outline has not finished, it will not be saved.",
+    );
+  }
+
+  async function handleStopGeneration() {
+    if (!sessionId || stopping || !confirmStopGeneration()) return;
+
+    setStopping(true);
+    stopRequestedRef.current = true;
+    contentGenCancelledRef.current = true;
+
+    const result = await cancelAiGenerationSession(sessionId);
+    setStopping(false);
+
+    if (result.error) {
+      setError(result.error);
+      return;
+    }
+
+    if (result.stopped) {
+      setBusy(false);
+      contentGenStarted.current = false;
+      await pollSession(sessionId);
+
+      if (result.nextStep === "preview") {
+        setStep("preview");
+        setNotice(
+          "Content generation stopped. Review what was written below — you can apply partial results or rework items.",
+        );
+      } else if (result.nextStep === "generate") {
+        setStep("generate");
+        setNotice("Structure generation stopped.");
+      } else {
+        setStep("sources");
+        setNotice("Processing stopped.");
+      }
+    }
+  }
 
   async function startSession() {
     if (allowedItemTypes.length === 0) {
@@ -302,12 +392,28 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
     }
   }
 
+  async function skipProcessing() {
+    if (assetsNeedProcessing(assets)) {
+      const ok = window.confirm(
+        "Skip processing?\n\nPDFs, videos, and web pages work much better after processing. Without it, AI often fails to write videos and detailed lessons.",
+      );
+      if (!ok) return;
+    }
+    setStep("generate");
+  }
+
   async function runProcessing() {
     if (!sessionId) return;
+    stopRequestedRef.current = false;
     setStep("processing");
     setBusy(true);
     setError("");
+    setNotice("");
     const result = await processAiSession(sessionId);
+    if (stopRequestedRef.current || result.cancelled) {
+      setBusy(false);
+      return;
+    }
     setBusy(false);
     if (result.error) {
       setError(result.error);
@@ -323,8 +429,10 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
       setError("Select at least one content type.");
       return;
     }
+    stopRequestedRef.current = false;
     setBusy(true);
     setError("");
+    setNotice("");
     await updateAiSessionPrompt(sessionId, userPrompt);
     const typesResult = await updateAiSessionAllowedItemTypes(
       sessionId,
@@ -336,6 +444,10 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
       return;
     }
     const result = await generateCourseStructure(sessionId);
+    if (stopRequestedRef.current || result.cancelled) {
+      setBusy(false);
+      return;
+    }
     setBusy(false);
     if (result.error) {
       setError(result.error);
@@ -348,6 +460,8 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
 
   async function runApproveAndGenerateContent() {
     if (!sessionId) return;
+    stopRequestedRef.current = false;
+    contentGenCancelledRef.current = false;
     setBusy(true);
     setError("");
     const approve = await approveStructureAndGenerateContent(sessionId);
@@ -401,6 +515,20 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
     setReworkInstruction("");
   }
 
+  const previewValidation = blueprint
+    ? validateBlueprint(blueprint)
+  : { ok: true, issues: [] as BlueprintIssue[] };
+
+  const applyBlocked =
+    !previewValidation.ok ||
+    (blueprint?.generationSkippedItems?.length ?? 0) > 0;
+
+  useEffect(() => {
+    if (step === "preview" && blueprint) {
+      setIssues(validateBlueprint(blueprint).issues);
+    }
+  }, [step, blueprint]);
+
   const steps: { id: WizardStep; label: string }[] = [
     { id: "intent", label: "Intent" },
     { id: "sources", label: "Sources" },
@@ -419,7 +547,7 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
   return (
     <div className="relative max-w-5xl space-y-6">
       {showSpinner && (
-        <div className="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-white/80">
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 rounded-xl bg-white/80">
           <AiLoadingSpinner
             label={
               step === "processing"
@@ -429,6 +557,17 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
                   : "AI is working…"
             }
           />
+          {sessionId && (
+            <button
+              type="button"
+              disabled={stopping}
+              onClick={() => void handleStopGeneration()}
+              className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-red-200 bg-white px-4 text-sm font-medium text-red-800 hover:bg-red-50 disabled:opacity-50"
+            >
+              <Square className="h-4 w-4 fill-current" />
+              {stopping ? "Stopping…" : "Stop"}
+            </button>
+          )}
         </div>
       )}
 
@@ -454,6 +593,12 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
           </span>
         ))}
       </nav>
+
+      {notice && (
+        <div className="rounded-lg border border-storm-light-blue/60 bg-storm-light-blue/15 px-4 py-3 text-sm text-storm-navy">
+          {notice}
+        </div>
+      )}
 
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
@@ -808,7 +953,7 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
             </button>
             <button
               type="button"
-              onClick={() => setStep("generate")}
+              onClick={skipProcessing}
               className="min-h-10 rounded-lg border px-4 text-sm text-storm-navy/70"
             >
               Skip processing
@@ -818,8 +963,21 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
       )}
 
       {step === "processing" && (
-        <div className="rounded-xl border bg-white p-4">
+        <div className="space-y-4 rounded-xl border bg-white p-4">
           <AiLoadingSpinner label="Extracting text and transcribing media…" />
+          {sessionId && (
+            <div className="flex justify-center">
+              <button
+                type="button"
+                disabled={stopping}
+                onClick={() => void handleStopGeneration()}
+                className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-red-200 px-4 text-sm font-medium text-red-800 hover:bg-red-50 disabled:opacity-50"
+              >
+                <Square className="h-4 w-4 fill-current" />
+                {stopping ? "Stopping…" : "Stop"}
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -900,6 +1058,19 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
                 : "Generating content…"
             }
           />
+          {sessionId && (
+            <div className="flex justify-center">
+              <button
+                type="button"
+                disabled={stopping}
+                onClick={() => void handleStopGeneration()}
+                className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-red-200 px-4 text-sm font-medium text-red-800 hover:bg-red-50 disabled:opacity-50"
+              >
+                <Square className="h-4 w-4 fill-current" />
+                {stopping ? "Stopping…" : "Stop"}
+              </button>
+            </div>
+          )}
           {generationWarnings.length > 0 && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
               <p className="font-medium">Some items were skipped</p>
@@ -923,10 +1094,17 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
                 These items still have their outline only. Open them in the course builder
                 after apply, or rework them here.
               </p>
-              <ul className="mt-2 list-inside list-disc">
+              <ul className="mt-2 list-inside list-disc space-y-1">
                 {(blueprint.generationSkippedItems ?? []).map((s) => (
                   <li key={`${s.moduleIndex}-${s.itemIndex}`}>
-                    {s.moduleTitle} → {s.title}
+                    <span className="font-medium">
+                      {s.moduleTitle} → {s.title}
+                    </span>
+                    {s.reason ? (
+                      <span className="block text-xs text-amber-900/80 mt-0.5">
+                        {s.reason}
+                      </span>
+                    ) : null}
                   </li>
                 ))}
               </ul>
@@ -934,7 +1112,7 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
           )}
           <BlueprintPreview
             blueprint={blueprint}
-            issues={issues}
+            issues={previewValidation.issues}
             selectedModule={selectedModule}
             selectedItem={selectedItem}
             onSelectModule={(mi) => {
@@ -969,9 +1147,16 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
           </div>
 
           <div className="flex flex-wrap gap-2">
+            {applyBlocked && (
+              <p className="w-full text-sm text-amber-900">
+                {previewValidation.issues.some((i) => i.level === "error")
+                  ? "Fix validation errors before applying."
+                  : "Regenerate or manually complete skipped items before applying."}
+              </p>
+            )}
             <button
               type="button"
-              disabled={busy || issues.some((i) => i.level === "error")}
+              disabled={busy || applyBlocked}
               onClick={runApply}
               className="min-h-11 rounded-lg bg-storm-medium-blue px-6 text-sm font-medium text-white disabled:opacity-50"
             >

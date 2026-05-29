@@ -44,6 +44,7 @@ type FileEntry = {
   file: File;
   title: string;
   description: string;
+  tagIds: string[];
 };
 
 function fileKey(file: File): string {
@@ -79,7 +80,7 @@ export function LibraryUploadModal({
   const [includeRecording, setIncludeRecording] = useState(true);
   const [videoMode, setVideoMode] = useState<"files" | "link">("files");
   const [availableTags, setAvailableTags] = useState<LibraryTagListItem[]>([]);
-  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+  const [sharedTagIds, setSharedTagIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (!open) return;
@@ -90,7 +91,7 @@ export function LibraryUploadModal({
 
   useEffect(() => {
     if (!open) return;
-    setSelectedTagIds([]);
+    setSharedTagIds([]);
     setError("");
     setProgress("");
     setDescription("");
@@ -125,6 +126,7 @@ export function LibraryUploadModal({
           file,
           title: titleFromFilename(file.name),
           description: "",
+          tagIds: [],
         };
       });
     });
@@ -258,12 +260,13 @@ export function LibraryUploadModal({
             uploadedMimeType: mimeType,
             fileSizeBytes,
             includeRecording: uploadType === "video" ? includeRecording : false,
+            tagIds: entry.tagIds.length ? entry.tagIds : undefined,
           });
         }
       }
 
       setProgress("Saving to library…");
-      const result = await saveLibraryAssetsBatch(items, scope, selectedTagIds);
+      const result = await saveLibraryAssetsBatch(items, scope, sharedTagIds);
       if (result.error && !result.created) {
         setError(result.error);
         return;
@@ -278,7 +281,10 @@ export function LibraryUploadModal({
     }
   }
 
-  function updateFileEntry(key: string, patch: Partial<Pick<FileEntry, "title" | "description">>) {
+  function updateFileEntry(
+    key: string,
+    patch: Partial<Pick<FileEntry, "title" | "description" | "tagIds">>,
+  ) {
     setFileEntries((prev) =>
       prev.map((entry) => (entry.key === key ? { ...entry, ...patch } : entry)),
     );
@@ -397,12 +403,12 @@ export function LibraryUploadModal({
               </label>
             )}
 
-            {availableTags.length > 0 && (
+            {availableTags.length > 0 && !usesPerFileMetadata && (
               <LibraryTagDropdown
                 mode="multiple"
                 tags={availableTags}
-                value={selectedTagIds}
-                onChange={setSelectedTagIds}
+                value={sharedTagIds}
+                onChange={setSharedTagIds}
                 disabled={busy}
                 label="Tags (optional)"
                 placement="top"
@@ -453,10 +459,23 @@ export function LibraryUploadModal({
               </div>
             )}
 
+            {availableTags.length > 0 && usesPerFileMetadata && (
+              <LibraryTagDropdown
+                mode="multiple"
+                tags={availableTags}
+                value={sharedTagIds}
+                onChange={setSharedTagIds}
+                disabled={busy}
+                label="Tags for all items (optional)"
+                placement="top"
+              />
+            )}
+
             {usesPerFileMetadata && (
               <div className="space-y-3">
                 <p className="text-sm text-storm-navy/70">
-                  Add a unique description for each file. Titles default to the file name.
+                  Add a unique description for each file. Titles default to the file name. Use shared
+                  tags above plus any additional tags per file.
                 </p>
                 <div className="max-h-72 space-y-3 overflow-y-auto rounded-lg border border-storm-light-blue/40 p-2">
                   {fileEntries.map((entry, index) => (
@@ -492,6 +511,17 @@ export function LibraryUploadModal({
                           className="mt-1 w-full rounded-lg border border-storm-light-blue/60 px-2 py-1.5 text-sm"
                         />
                       </label>
+                      {availableTags.length > 0 && (
+                        <LibraryTagDropdown
+                          mode="multiple"
+                          tags={availableTags}
+                          value={entry.tagIds}
+                          onChange={(tagIds) => updateFileEntry(entry.key, { tagIds })}
+                          disabled={busy}
+                          label="Additional tags (optional)"
+                          placement="top"
+                        />
+                      )}
                     </div>
                   ))}
                 </div>

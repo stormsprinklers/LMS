@@ -390,6 +390,13 @@ export async function processAiSession(sessionId: string) {
 
   try {
     await processAllSessionAssets(sessionId);
+    const latest = await prisma.aiGenerationSession.findUnique({
+      where: { id: sessionId },
+      select: { status: true },
+    });
+    if (latest?.status !== "processing") {
+      return { cancelled: true as const };
+    }
     await prisma.aiGenerationSession.update({
       where: { id: sessionId },
       data: { status: "collecting" },
@@ -457,12 +464,15 @@ export async function generateCourseStructure(sessionId: string) {
       allowedItemTypes: allowed,
     });
 
+const STRUCTURE_MAX_TOKENS = 8_192;
+
     const completion = await openai.chat.completions.create({
       model: AI_GENERATION_MODEL,
       messages: [
         { role: "system", content: system },
         { role: "user", content: user },
       ],
+      max_tokens: STRUCTURE_MAX_TOKENS,
       response_format: {
         type: "json_schema",
         json_schema: {
@@ -475,8 +485,18 @@ export async function generateCourseStructure(sessionId: string) {
 
     const raw = completion.choices[0]?.message?.content;
     if (!raw) throw new Error("No response from AI.");
+    if (completion.choices[0]?.finish_reason === "length") {
+      throw new Error("Structure response was truncated. Try fewer modules or simpler instructions.");
+    }
 
-    let structure = parseStructureFromLlm(JSON.parse(raw));
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      throw new Error("AI returned invalid JSON for structure.");
+    }
+
+    let structure = parseStructureFromLlm(parsed);
     structure = filterStructureByAllowedTypes(structure, allowed);
     if (structure.modules.every((m) => m.items.length === 0)) {
       throw new Error(
@@ -489,6 +509,14 @@ export async function generateCourseStructure(sessionId: string) {
       aiSession.assets,
     );
     const validation = validateStructureBlueprint(structure, allowed);
+
+    const latest = await prisma.aiGenerationSession.findUnique({
+      where: { id: sessionId },
+      select: { status: true },
+    });
+    if (latest?.status !== "generating") {
+      return { cancelled: true as const };
+    }
 
     await prisma.aiGenerationSession.update({
       where: { id: sessionId },
@@ -534,6 +562,9 @@ export async function generateNextBlueprintItem(sessionId: string) {
   if (!aiSession?.blueprintJson) return { error: "No blueprint found." };
   if (!aiSession.structureApproved) {
     return { error: "Approve the structure before generating content." };
+  }
+  if (aiSession.status !== "generating_content") {
+    return { cancelled: true as const };
   }
 
   const allowed = sessionAllowedTypes(aiSession.allowedItemTypes);
@@ -625,6 +656,14 @@ export async function generateNextBlueprintItem(sessionId: string) {
     const nextCursor = cursor + 1;
     const done = nextCursor >= flat.length;
 
+    const latest = await prisma.aiGenerationSession.findUnique({
+      where: { id: sessionId },
+      select: { status: true },
+    });
+    if (latest?.status !== "generating_content") {
+      return { cancelled: true as const, blueprint: enriched };
+    }
+
     await prisma.aiGenerationSession.update({
       where: { id: sessionId },
       data: {
@@ -656,6 +695,46 @@ export async function generateNextBlueprintItem(sessionId: string) {
     });
     return { error: message };
   }
+}
+
+export async function cancelAiGenerationSession(sessionId: string) {
+  const aiSession = await loadSessionForGeneration(sessionId);
+  if (!aiSession) return { error: "Session not found." };
+
+  const { status, blueprintJson, structureApproved } = aiSession;
+
+  if (
+    status !== "processing" &&
+    status !== "generating" &&
+    status !== "generating_content"
+  ) {
+    return { error: "Nothing is running to stop." };
+  }
+
+  if (status === "generating_content" && blueprintJson && structureApproved) {
+    await prisma.aiGenerationSession.update({
+      where: { id: sessionId },
+      data: { status: "ready", error: null },
+    });
+    revalidatePath(`/admin/courses/${aiSession.courseId}/builder`);
+    return { stopped: true as const, nextStep: "preview" as const };
+  }
+
+  await prisma.aiGenerationSession.update({
+    where: { id: sessionId },
+    data: {
+      status: "collecting",
+      error: null,
+      ...(status === "generating" ? { blueprintJson: Prisma.DbNull } : {}),
+    },
+  });
+  revalidatePath(`/admin/courses/${aiSession.courseId}/builder`);
+
+  if (status === "processing") {
+    return { stopped: true as const, nextStep: "sources" as const };
+  }
+
+  return { stopped: true as const, nextStep: "generate" as const };
 }
 
 /** @deprecated Use generateCourseStructure + generateNextBlueprintItem */

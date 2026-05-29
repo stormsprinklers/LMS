@@ -8,11 +8,15 @@ import {
   formatAllowedTypesForPrompt,
   getCourseStructureGuidance,
 } from "./allowed-item-types";
+import { compactItemSummary, repairGeneratedItemCandidate } from "./repair-item-content";
 import {
   buildItemValidationRetryMessage,
-  MAX_ITEM_CONTENT_ATTEMPTS,
+  MAX_API_ATTEMPTS,
+  MAX_VALIDATION_ATTEMPTS,
   validateGeneratedItemContent,
 } from "./validate-item-content";
+
+const ITEM_CONTENT_MAX_TOKENS = 12_000;
 
 const itemContentJsonSchema = {
   type: "object",
@@ -42,17 +46,24 @@ function buildInitialThread(options: {
   blueprint: CourseBlueprint;
   userPrompt: string;
   allowedItemTypes: BlueprintItemType[];
+  assetIds: string[];
 }): GenerationChatMessage[] {
-  const { blueprint, userPrompt, allowedItemTypes } = options;
+  const { blueprint, userPrompt, allowedItemTypes, assetIds } = options;
+  const assetIdList =
+    assetIds.length > 0
+      ? `Valid sourceAssetRef ids (copy exactly): ${assetIds.join(", ")}.`
+      : "";
+
   return [
     {
       role: "system",
       content: `You are an instructional designer writing one section of a training course at a time.
-Output JSON with a single "item" object. Maintain consistency with the approved course structure and prior items in the conversation.
-Allowed item types for this course: ${formatAllowedTypesForPrompt(allowedItemTypes)}.
+Output JSON with a single "item" object. Maintain consistency with the approved course structure and prior item summaries in the conversation.
+Allowed item types: ${formatAllowedTypesForPrompt(allowedItemTypes)}.
 ${getCourseStructureGuidance(allowedItemTypes, blueprint.mode)}
+${assetIdList}
 Author instructions: ${userPrompt || "(none)"}
-Return valid JSON only. LESSON items need lesson.bodyHtml (HTML). EXAM/QUIZ items need exam.questions[]. VIDEO items need youtubeUrl, sourceAssetRef, or transcript.`,
+Return valid JSON only. LESSON items need lesson.bodyHtml (HTML, substantive). EXAM/QUIZ need exam.questions[] with options and isCorrect on at least one option per question. VIDEO: use youtubeUrl OR sourceAssetRef from the valid id list OR transcript.`,
     },
     {
       role: "user",
@@ -65,6 +76,7 @@ Return valid JSON only. LESSON items need lesson.bodyHtml (HTML). EXAM/QUIZ item
               type: i.type,
               title: i.title,
               outline: i.outline,
+              linkedSourceAssetRefs: i.linkedSourceAssetRefs,
             })),
           })),
         },
@@ -82,11 +94,12 @@ Return valid JSON only. LESSON items need lesson.bodyHtml (HTML). EXAM/QUIZ item
 
 async function requestItemJson(
   thread: GenerationChatMessage[],
-): Promise<{ raw: string; parsed: unknown }> {
+): Promise<{ raw: string; parsed: unknown; truncated: boolean }> {
   const openai = requireOpenAI();
   const completion = await openai.chat.completions.create({
     model: AI_GENERATION_MODEL,
     messages: thread.map((m) => ({ role: m.role, content: m.content })),
+    max_tokens: ITEM_CONTENT_MAX_TOKENS,
     response_format: {
       type: "json_schema",
       json_schema: {
@@ -97,8 +110,11 @@ async function requestItemJson(
     },
   });
 
-  const raw = completion.choices[0]?.message?.content;
+  const choice = completion.choices[0];
+  const raw = choice?.message?.content;
   if (!raw) throw new Error("No response from AI.");
+
+  const truncated = choice?.finish_reason === "length";
 
   let parsed: unknown;
   try {
@@ -107,7 +123,7 @@ async function requestItemJson(
     throw new Error("AI returned invalid JSON.");
   }
 
-  return { raw, parsed };
+  return { raw, parsed, truncated };
 }
 
 export type GenerateItemContentResult =
@@ -148,63 +164,112 @@ export async function generateItemContent(options: {
     };
   }
 
-  let thread =
+  const assetIds = assets.map((a) => a.id);
+  const assetIdSet = new Set(assetIds);
+
+  let persistedThread =
     options.thread.length > 0
       ? [...options.thread]
-      : buildInitialThread({ blueprint, userPrompt, allowedItemTypes });
+      : buildInitialThread({
+          blueprint,
+          userPrompt,
+          allowedItemTypes,
+          assetIds,
+        });
 
-  const assetIds = new Set(assets.map((a) => a.id));
+  const userMessage = buildItemContentUserMessage({
+    blueprint,
+    moduleIndex,
+    itemIndex,
+    assets,
+    allowedItemTypes,
+  });
+
+  let workingThread: GenerationChatMessage[] = [
+    ...persistedThread,
+    { role: "user", content: userMessage },
+  ];
+
   let lastIssues: string[] = [];
+  let totalAttempts = 0;
 
-  for (let attempt = 1; attempt <= MAX_ITEM_CONTENT_ATTEMPTS; attempt++) {
-    if (attempt === 1) {
-      const userMessage = buildItemContentUserMessage({
-        blueprint,
-        moduleIndex,
-        itemIndex,
-        assets,
-        allowedItemTypes,
-      });
-      thread.push({ role: "user", content: userMessage });
+  for (
+    let validationAttempt = 1;
+    validationAttempt <= MAX_VALIDATION_ATTEMPTS;
+    validationAttempt++
+  ) {
+    let validationFailed = false;
+
+    for (let apiAttempt = 1; apiAttempt <= MAX_API_ATTEMPTS; apiAttempt++) {
+      totalAttempts++;
+      try {
+        const { parsed, truncated } = await requestItemJson(workingThread);
+
+        if (truncated) {
+          lastIssues = [
+            "Response was truncated. Use shorter HTML or fewer exam questions.",
+          ];
+          validationFailed = true;
+          break;
+        }
+
+        const itemPayload =
+          parsed && typeof parsed === "object" && "item" in parsed
+            ? (parsed as { item: unknown }).item
+            : parsed;
+
+        const repaired = repairGeneratedItemCandidate(
+          skeleton,
+          itemPayload && typeof itemPayload === "object"
+            ? (itemPayload as Record<string, unknown>)
+            : {},
+          { assetIds: assetIdSet },
+        );
+
+        const validation = validateGeneratedItemContent(skeleton, repaired, {
+          assetIds: assetIdSet,
+        });
+
+        if (validation.ok) {
+          persistedThread = [
+            ...persistedThread,
+            { role: "user", content: userMessage },
+            {
+              role: "assistant",
+              content: compactItemSummary(validation.item),
+            },
+          ];
+          return {
+            ok: true,
+            item: validation.item,
+            thread: persistedThread,
+            attempts: totalAttempts,
+          };
+        }
+
+        lastIssues = validation.issues;
+        validationFailed = true;
+        break;
+      } catch (e) {
+        lastIssues = [
+          e instanceof Error ? e.message : "Generation request failed.",
+        ];
+        if (apiAttempt < MAX_API_ATTEMPTS) {
+          continue;
+        }
+        validationFailed = true;
+        break;
+      }
     }
 
-    let raw: string;
-    let parsed: unknown;
-    try {
-      ({ raw, parsed } = await requestItemJson(thread));
-    } catch (e) {
-      lastIssues = [e instanceof Error ? e.message : "Generation request failed."];
-      if (attempt < MAX_ITEM_CONTENT_ATTEMPTS) {
-        thread.push({
+    if (validationAttempt < MAX_VALIDATION_ATTEMPTS && validationFailed) {
+      workingThread = [
+        ...workingThread,
+        {
           role: "user",
           content: buildItemValidationRetryMessage(lastIssues),
-        });
-        continue;
-      }
-      break;
-    }
-
-    thread.push({ role: "assistant", content: raw });
-
-    const itemPayload =
-      parsed && typeof parsed === "object" && "item" in parsed
-        ? (parsed as { item: unknown }).item
-        : parsed;
-
-    const validation = validateGeneratedItemContent(skeleton, itemPayload, {
-      assetIds,
-    });
-
-    if (validation.ok) {
-      return { ok: true, item: validation.item, thread, attempts: attempt };
-    }
-
-    lastIssues = validation.issues;
-    if (attempt < MAX_ITEM_CONTENT_ATTEMPTS) {
-      thread.push({
-        role: "user",
-        content: buildItemValidationRetryMessage(lastIssues),
-      });
+        },
+      ];
     }
   }
 
@@ -212,7 +277,7 @@ export async function generateItemContent(options: {
     ok: false,
     skipped: true,
     reason: lastIssues.join(" "),
-    thread,
-    attempts: MAX_ITEM_CONTENT_ATTEMPTS,
+    thread: persistedThread,
+    attempts: totalAttempts,
   };
 }

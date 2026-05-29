@@ -32,6 +32,7 @@ export default auth((req) => {
         pathname === "/admin" ||
         pathname.startsWith("/admin/courses") ||
         pathname.startsWith("/admin/exams") ||
+        pathname.startsWith("/admin/grades") ||
         pathname.startsWith("/admin/grading");
       if (allowed) return NextResponse.next();
       return NextResponse.redirect(new URL("/admin/courses", req.nextUrl.origin));
@@ -40,8 +41,7 @@ export default auth((req) => {
     if (
       role === "COURSE_ADMIN" &&
       (pathname.startsWith("/admin/grading") ||
-        pathname.startsWith("/admin/grades/courses/") ||
-        pathname.startsWith("/admin/grades/exams/") ||
+        pathname.startsWith("/admin/grades") ||
         pathname === "/admin")
     ) {
       return NextResponse.next();

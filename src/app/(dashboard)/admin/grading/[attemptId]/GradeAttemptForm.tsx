@@ -49,7 +49,7 @@ export function GradeAttemptForm({
         setSaving(false);
         return;
       }
-      router.push("/admin/grading");
+      router.push("/admin/grades?view=pending");
       router.refresh();
     } catch {
       setError("Could not save grades. Please try again.");

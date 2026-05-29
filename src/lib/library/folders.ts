@@ -76,7 +76,7 @@ export const LIBRARY_UPLOAD_TYPES: {
   },
 ];
 
-export const MAX_LIBRARY_BATCH_UPLOAD = 10;
+export const MAX_LIBRARY_BATCH_UPLOAD = 15;
 
 export function folderForKind(kind: string): LibraryFolderId {
   const folder = LIBRARY_FOLDERS.find((f) =>

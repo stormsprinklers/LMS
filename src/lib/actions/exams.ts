@@ -205,6 +205,7 @@ async function submitExamAttemptInner(
       },
     });
     revalidatePath("/exams");
+    revalidatePath("/admin/grades");
     revalidatePath("/admin/grading");
     return { pendingReview: true };
   }

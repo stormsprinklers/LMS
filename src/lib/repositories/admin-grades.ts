@@ -126,10 +126,15 @@ function buildExamSummariesByUser(
   }
 
   for (const [, exams] of byUser) {
-    exams.sort((a, b) =>
-      (b.latestCompletedAt?.getTime() ?? 0) -
-      (a.latestCompletedAt?.getTime() ?? 0),
-    );
+    exams.sort((a, b) => {
+      if (a.pendingGrade !== b.pendingGrade) {
+        return a.pendingGrade ? -1 : 1;
+      }
+      return (
+        (b.latestCompletedAt?.getTime() ?? 0) -
+        (a.latestCompletedAt?.getTime() ?? 0)
+      );
+    });
   }
 
   return byUser;
@@ -199,7 +204,8 @@ export async function getLearnersGradesOverview(): Promise<
     enrollmentsByUser.set(e.userId, set);
   }
 
-  return users.map((user) => {
+  return users
+    .map((user) => {
     const enrolledCourseIds = enrollmentsByUser.get(user.id) ?? new Set();
     const courseIdsForUser = new Set(enrolledCourseIds);
     for (const [key] of completedByUserCourse) {
@@ -233,7 +239,13 @@ export async function getLearnersGradesOverview(): Promise<
       courses: courseSummaries,
       exams: examByUser.get(user.id) ?? [],
     };
-  });
+  })
+    .sort((a, b) => {
+      const aPending = a.exams.some((e) => e.pendingGrade);
+      const bPending = b.exams.some((e) => e.pendingGrade);
+      if (aPending !== bPending) return aPending ? -1 : 1;
+      return (a.name ?? a.email).localeCompare(b.name ?? b.email);
+    });
 }
 
 export async function getExamGradesReport(examId: string) {
@@ -284,9 +296,12 @@ export async function getExamGradesReport(examId: string) {
         latestAttemptId: latest.id,
       };
     })
-    .sort((a, b) =>
-      (a.name ?? a.email).localeCompare(b.name ?? b.email),
-    );
+    .sort((a, b) => {
+      if (a.pendingGrade !== b.pendingGrade) {
+        return a.pendingGrade ? -1 : 1;
+      }
+      return (a.name ?? a.email).localeCompare(b.name ?? b.email);
+    });
 
   return { exam, learners };
 }
@@ -409,7 +424,12 @@ export async function getCourseGradesReport(courseId: string) {
         row.completedItems > 0 ||
         row.exams.some((e) => e.attemptCount > 0),
     )
-    .sort((a, b) => (a.name ?? a.email).localeCompare(b.name ?? b.email));
+    .sort((a, b) => {
+      const aPending = a.exams.some((e) => e.pendingGrade);
+      const bPending = b.exams.some((e) => e.pendingGrade);
+      if (aPending !== bPending) return aPending ? -1 : 1;
+      return (a.name ?? a.email).localeCompare(b.name ?? b.email);
+    });
 
   return { course, courseExams, learners, totalItems };
 }

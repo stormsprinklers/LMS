@@ -62,7 +62,18 @@ export function GradesOverviewTable({ rows }: { rows: LearnerGradesOverviewRow[]
                   <span className="text-storm-navy/50">—</span>
                 ) : (
                   <ul className="space-y-2">
-                    {row.exams.map((e) => (
+                    {row.exams
+                      .slice()
+                      .sort((a, b) => {
+                        if (a.pendingGrade !== b.pendingGrade) {
+                          return a.pendingGrade ? -1 : 1;
+                        }
+                        return (
+                          (b.latestCompletedAt?.getTime() ?? 0) -
+                          (a.latestCompletedAt?.getTime() ?? 0)
+                        );
+                      })
+                      .map((e) => (
                       <li key={e.examId} className="flex flex-wrap items-center gap-2">
                         <Link
                           href={`/admin/grades/exams/${e.examId}`}

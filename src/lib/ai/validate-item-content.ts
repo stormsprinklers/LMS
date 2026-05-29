@@ -6,9 +6,12 @@ import {
 import { tiptapDocFromHtml } from "./tiptap-from-html";
 import { isYouTubeUrl } from "@/lib/video/youtube";
 
-export type ItemContentValidationContext = {
-  assetIds?: Set<string>;
-};
+import type { ItemContentValidationContext } from "./repair-item-content";
+import {
+  repairGeneratedItemCandidate,
+} from "./repair-item-content";
+
+export type { ItemContentValidationContext };
 
 export type ItemContentValidationResult =
   | { ok: true; item: BlueprintItem }
@@ -42,7 +45,11 @@ function validateExamQuestions(item: BlueprintItem, issues: string[]): void {
       if (q.type !== "TRUE_FALSE" && options.length < 2) {
         issues.push(`${prefix}.options: Include at least two answer options.`);
       }
-      if (options.length > 0 && !options.some((o) => o.isCorrect)) {
+      if (
+        options.length > 0 &&
+        q.type !== "MULTI_SELECT" &&
+        !options.some((o) => o.isCorrect)
+      ) {
         issues.push(`${prefix}.options: Mark at least one option as correct.`);
       }
       if (options.some((o) => !o.text?.trim())) {
@@ -58,7 +65,7 @@ function validateLessonContent(item: BlueprintItem, issues: string[]): void {
     issues.push("lesson.bodyHtml: Lesson body HTML is required.");
     return;
   }
-  if (html.length < 40) {
+  if (html.length < 24) {
     issues.push("lesson.bodyHtml: Lesson content is too short (write substantive HTML).");
   }
   if (/<script[\s>]/i.test(html)) {
@@ -116,10 +123,13 @@ export function validateGeneratedItemContent(
     return { ok: false, issues: ["item: Response must be a JSON object."] };
   }
 
-  const merged = {
-    ...skeleton,
-    ...(candidate as Record<string, unknown>),
-  };
+  const merged = repairGeneratedItemCandidate(
+    skeleton,
+    candidate && typeof candidate === "object"
+      ? (candidate as Record<string, unknown>)
+      : {},
+    ctx,
+  );
 
   const parsed = blueprintItemSchema.safeParse(merged);
   if (!parsed.success) {
@@ -175,4 +185,8 @@ export function buildItemValidationRetryMessage(issues: string[]): string {
   ].join("\n");
 }
 
-export const MAX_ITEM_CONTENT_ATTEMPTS = 3;
+export const MAX_VALIDATION_ATTEMPTS = 5;
+export const MAX_API_ATTEMPTS = 3;
+
+/** @deprecated Use MAX_VALIDATION_ATTEMPTS */
+export const MAX_ITEM_CONTENT_ATTEMPTS = MAX_VALIDATION_ATTEMPTS;

@@ -19,6 +19,9 @@ type SingleProps = BaseProps & {
   mode: "single";
   value: string | null;
   onChange: (tagId: string | null) => void;
+  allLabel?: string;
+  includeUntagged?: boolean;
+  untaggedCount?: number;
 };
 
 type MultipleProps = BaseProps & {
@@ -26,6 +29,8 @@ type MultipleProps = BaseProps & {
   value: string[];
   onChange: (tagIds: string[]) => void;
 };
+
+export const LIBRARY_UNTAGGED_NAV_ID = "__untagged__";
 
 export function LibraryTagDropdown(props: SingleProps | MultipleProps) {
   const {
@@ -97,9 +102,11 @@ export function LibraryTagDropdown(props: SingleProps | MultipleProps) {
 
   const triggerLabel =
     props.mode === "single"
-      ? selectedTag
-        ? selectedTag.name
-        : "All tags"
+      ? props.value === LIBRARY_UNTAGGED_NAV_ID
+        ? "Untagged"
+        : selectedTag
+          ? selectedTag.name
+          : props.allLabel ?? "All tags"
       : selectedTags.length === 0
         ? "Select tags…"
         : `${selectedTags.length} tag${selectedTags.length === 1 ? "" : "s"} selected`;
@@ -202,10 +209,38 @@ export function LibraryTagDropdown(props: SingleProps | MultipleProps) {
                     props.value === null ? "bg-storm-medium-blue/10 font-medium" : ""
                   }`}
                 >
-                  <span>All tags</span>
+                  <span>{props.allLabel ?? "All tags"}</span>
                   {props.value === null && (
                     <Check className="h-4 w-4 text-storm-medium-blue" />
                   )}
+                </button>
+              </li>
+            )}
+
+            {props.mode === "single" && props.includeUntagged && (
+              <li>
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={props.value === LIBRARY_UNTAGGED_NAV_ID}
+                  onClick={() => selectSingle(LIBRARY_UNTAGGED_NAV_ID)}
+                  className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-storm-light-blue/15 ${
+                    props.value === LIBRARY_UNTAGGED_NAV_ID
+                      ? "bg-storm-medium-blue/10 font-medium"
+                      : ""
+                  }`}
+                >
+                  <span>Untagged</span>
+                  <span className="flex items-center gap-2">
+                    {(props.untaggedCount ?? 0) > 0 && (
+                      <span className="text-xs text-storm-navy/45">
+                        {props.untaggedCount}
+                      </span>
+                    )}
+                    {props.value === LIBRARY_UNTAGGED_NAV_ID && (
+                      <Check className="h-4 w-4 text-storm-medium-blue" />
+                    )}
+                  </span>
                 </button>
               </li>
             )}

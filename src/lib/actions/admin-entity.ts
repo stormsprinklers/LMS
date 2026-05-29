@@ -11,6 +11,7 @@ function revalidateAdmin() {
   revalidatePath("/admin/users");
   revalidatePath("/admin/certifications");
   revalidatePath("/admin/media");
+  revalidatePath("/admin/grades");
   revalidatePath("/admin/grading");
   revalidatePath("/admin/archived");
   revalidatePath("/courses");

@@ -120,20 +120,55 @@ export function buildStructureGenerationMessages(options: {
   assets: AiSourceAsset[];
   allowedItemTypes: BlueprintItemType[];
 }) {
-  const base = buildGenerationMessages(options);
-  const system = `${base.system}
+  const {
+    mode,
+    userPrompt,
+    courseTitle,
+    courseDescription,
+    targetModuleTitle,
+    assets,
+    allowedItemTypes,
+  } = options;
 
-PHASE 1 — STRUCTURE ONLY:
-- Output modules and items with type, title, and outline (1-3 sentences per item describing what the item will teach).
-- Every item.type MUST be one of the allowed types listed in the user message.
-- Do NOT include lesson.bodyHtml, exam.questions, video transcripts, or other full content.
-- Do NOT include sourceAssets[] in JSON.
-- Link relevant uploads via linkedSourceAssetRefs (asset id strings) when applicable.
-- Follow the CURRICULUM STRUCTURE guidance in the system message: lessons and quizzes throughout, EXAM at the end of each module.`;
+  const base = buildGenerationMessages({
+    mode,
+    userPrompt,
+    courseTitle,
+    courseDescription,
+    targetModuleTitle,
+    assets,
+    allowedItemTypes,
+  });
 
-  const user = `${base.user}
+  const allowedBlock = `ALLOWED ITEM TYPES (use ONLY these): ${formatAllowedTypesForPrompt(allowedItemTypes)}.`;
+  const structureGuidance = getCourseStructureGuidance(allowedItemTypes, mode);
 
-Return structure JSON only: each item must have "outline" and must NOT have lesson, exam, video, or scenario content fields.`;
+  const modeInstructions =
+    mode === "course"
+      ? "Generate a full course with multiple modules using only the allowed item types."
+      : mode === "module"
+        ? `Generate exactly one new module${targetModuleTitle ? ` (context: "${targetModuleTitle}")` : ""} with items. Set mode to "module".`
+        : `Generate item(s) in a single module. Set mode to "lesson". Target module: ${targetModuleTitle ?? "existing module"}.`;
+
+  const system = `You are an instructional designer building training for a field-service / irrigation company.
+Output ONLY valid JSON for the course STRUCTURE (phase 1). Version "1.0".
+${structureGuidance}
+${allowedBlock}
+Do NOT include lesson.bodyHtml, exam.questions, video transcripts, or other full content.
+Do NOT include sourceAssets[] in JSON — reference uploads only via linkedSourceAssetRefs (exact asset id strings from source materials).`;
+
+  const user = [
+    `Course: ${courseTitle}`,
+    courseDescription ? `Description: ${courseDescription}` : "",
+    modeInstructions,
+    userPrompt ? `Author instructions:\n${userPrompt}` : "",
+    base.user.includes("Source materials:")
+      ? base.user.slice(base.user.indexOf("Source materials:"))
+      : "",
+    `Return structure JSON: modules[] with items that each have type, title, and outline (1-3 sentences). No lesson, exam, video, or scenario content fields.`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 
   return { system, user };
 }
@@ -146,7 +181,7 @@ function contentInstructionsForType(type: BlueprintItemType): string {
       return "VIDEO: sourceAssetRef and/or youtubeUrl, transcript summary if no recording.";
     case "QUIZ":
     case "EXAM":
-      return "EXAM/QUIZ: at least 5 questions with options where applicable.";
+      return "EXAM/QUIZ: at least 3 questions; every MC/MS/TRUE_FALSE question needs options with isCorrect true on at least one option.";
     case "SCENARIO":
       return "SCENARIO: detailed prompt and backgroundInfo.";
     case "SKILL_CHECK":
@@ -177,11 +212,19 @@ export function buildItemContentUserMessage(options: {
     )
     .join("\n");
 
+  const allAssetIds = assets.map((a) => a.id).join(", ");
+
   return [
     `Generate full content for this curriculum item only.`,
     `Module ${moduleIndex + 1}: ${mod.title}`,
     `Item: ${JSON.stringify(item, null, 2)}`,
-    assetNotes ? `Linked sources:\n${assetNotes}` : "",
+    allAssetIds
+      ? `Valid sourceAssetRef ids (use exactly one of these for VIDEO): ${allAssetIds}`
+      : "",
+    linked.length
+      ? `Prefer linkedSourceAssetRefs for this item: ${linked.join(", ")}`
+      : "",
+    assetNotes ? `Linked source excerpts:\n${assetNotes}` : "",
     `Return JSON: { "item": { ...complete item with ${item.type} content filled in... } }`,
     `Keep type, title, outline, track, and linkedSourceAssetRefs unless you must adjust them.`,
     contentInstructionsForType(item.type as BlueprintItemType),

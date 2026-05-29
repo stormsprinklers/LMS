@@ -20,10 +20,10 @@ export default async function GradeAttemptPage({
         description={data.learnerName}
         action={
           <Link
-            href="/admin/grading"
+            href="/admin/grades?view=pending"
             className="text-sm text-storm-medium-blue no-underline"
           >
-            ← Inbox
+            ← Needs review
           </Link>
         }
       />
