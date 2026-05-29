@@ -187,6 +187,10 @@ export async function createAiSession(
       ? options.allowedItemTypes
       : parseAllowedItemTypes(null);
 
+    await prisma.aiGenerationSession.deleteMany({
+      where: { courseId, status: { not: "applied" } },
+    });
+
     const aiSession = await prisma.aiGenerationSession.create({
       data: {
         courseId,
@@ -239,6 +243,40 @@ export async function getAiSession(sessionId: string) {
   if (!row) return { error: "Session not found." };
   await requireManageCourse(row.courseId);
   return { session: row };
+}
+
+export async function getActiveAiSessionForCourse(courseId: string) {
+  try {
+    await requireManageCourse(courseId);
+    const session = await prisma.aiGenerationSession.findFirst({
+      where: {
+        courseId,
+        status: { not: "applied" },
+      },
+      orderBy: { updatedAt: "desc" },
+      include: {
+        assets: { orderBy: { sortOrder: "asc" } },
+      },
+    });
+    return { session };
+  } catch (e) {
+    return { error: formatPrismaActionError(e) };
+  }
+}
+
+export async function discardAiSessionDraft(sessionId: string) {
+  const row = await prisma.aiGenerationSession.findUnique({
+    where: { id: sessionId },
+    select: { courseId: true, status: true },
+  });
+  if (!row) return { error: "Session not found." };
+  await requireManageCourse(row.courseId);
+  if (row.status === "applied") {
+    return { error: "This session was already applied." };
+  }
+  await prisma.aiGenerationSession.delete({ where: { id: sessionId } });
+  revalidatePath(`/admin/courses/${row.courseId}/builder`);
+  return { success: true as const };
 }
 
 export async function updateAiSessionDiscoverImages(
@@ -707,6 +745,46 @@ export async function approveStructureAndGenerateContent(sessionId: string) {
   });
 
   return { success: true as const };
+}
+
+export async function resumeContentGeneration(sessionId: string) {
+  const aiSession = await loadSessionForGeneration(sessionId);
+  if (!aiSession?.blueprintJson) return { error: "No blueprint found." };
+  if (!aiSession.structureApproved) {
+    return { error: "Approve the structure before generating content." };
+  }
+  if (aiSession.status === "generating_content") {
+    return { success: true as const, alreadyRunning: true as const };
+  }
+  if (aiSession.status !== "ready") {
+    return { error: "Content generation is not paused." };
+  }
+
+  const allowed = sessionAllowedTypes(aiSession.allowedItemTypes);
+  const blueprint = filterBlueprintByAllowedTypes(
+    courseBlueprintSchema.parse(aiSession.blueprintJson),
+    allowed,
+  );
+  const flat = flattenBlueprintItems(blueprint);
+
+  if (aiSession.contentItemCursor >= flat.length) {
+    return { error: "All items have already been processed." };
+  }
+
+  await prisma.aiGenerationSession.update({
+    where: { id: sessionId },
+    data: { status: "generating_content", error: null },
+  });
+
+  revalidatePath(`/admin/courses/${aiSession.courseId}/builder`);
+
+  return {
+    success: true as const,
+    progress: {
+      current: aiSession.contentItemCursor,
+      total: flat.length,
+    },
+  };
 }
 
 export async function generateNextBlueprintItem(sessionId: string) {

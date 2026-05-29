@@ -1,13 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import type { AiSessionStatus } from "@prisma/client";
 import type { CourseBuilderCourse } from "@/lib/course-builder/types";
 import type { CourseBlueprint } from "@/lib/ai/blueprint-schema";
 import type { BlueprintIssue } from "@/lib/ai/validate-blueprint";
 import {
   applyCourseBlueprint,
   approveStructureAndGenerateContent,
+  resumeContentGeneration,
   cancelAiGenerationSession,
   createAiSession,
   generateCourseStructure,
@@ -18,6 +20,7 @@ import {
   updateAiSessionAllowedItemTypes,
   updateAiSessionDiscoverYoutube,
   updateAiSessionDiscoverImages,
+  discardAiSessionDraft,
   uploadAiSource,
   deleteAiSourceAsset,
   attachLibraryAssetsToSession,
@@ -35,7 +38,37 @@ import { FileInput } from "@/components/ui/FileInput";
 import { YouTubeIframe } from "@/components/video/YouTubeIframe";
 import { isYouTubeUrl } from "@/lib/video/youtube";
 import { validateBlueprint } from "@/lib/ai/validate-blueprint";
+import {
+  sessionStatusLabel,
+  wizardStepFromSessionStatus,
+  type AiStudioWizardStep,
+} from "@/lib/ai/session-restore";
+import { useCourseBuilderUnsaved } from "../CourseBuilderUnsavedContext";
 import { Square } from "lucide-react";
+
+type SessionApiPayload = {
+  id: string;
+  status: AiSessionStatus;
+  mode?: "course" | "module" | "lesson";
+  targetModuleId?: string | null;
+  userPrompt?: string | null;
+  error?: string | null;
+  allowedItemTypes?: unknown;
+  discoverYoutubeVideos?: boolean;
+  discoverImages?: boolean;
+  blueprintJson?: unknown;
+  contentItemCursor?: number;
+  structureApproved?: boolean;
+  assets?: {
+    id: string;
+    kind: string;
+    filename: string | null;
+    processingStatus: string;
+    processingError: string | null;
+    placementHint: string | null;
+    blobUrl: string | null;
+  }[];
+};
 
 function formatSkippedItemWarning(item: {
   title: string;
@@ -85,14 +118,7 @@ function assetsNeedProcessing(
   );
 }
 
-type WizardStep =
-  | "intent"
-  | "sources"
-  | "processing"
-  | "generate"
-  | "structure_preview"
-  | "generating_content"
-  | "preview";
+type WizardStep = AiStudioWizardStep;
 
 type PendingFile = {
   id: string;
@@ -102,6 +128,8 @@ type PendingFile = {
 
 export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
   const router = useRouter();
+  const pathname = usePathname();
+  const { setDirty, registerSave, unregister } = useCourseBuilderUnsaved();
   const [step, setStep] = useState<WizardStep>("intent");
   const [mode, setMode] = useState<"course" | "module" | "lesson">("course");
   const [targetModuleId, setTargetModuleId] = useState("");
@@ -112,6 +140,7 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
   const [discoverYoutubeVideos, setDiscoverYoutubeVideos] = useState(false);
   const [discoverImages, setDiscoverImages] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessionStatus, setSessionStatus] = useState<AiSessionStatus | null>(null);
   const [assets, setAssets] = useState<
     {
       id: string;
@@ -146,43 +175,105 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
     total: number;
     label?: string;
   } | null>(null);
+  const [contentItemCursor, setContentItemCursor] = useState(0);
+  const [structureApproved, setStructureApproved] = useState(false);
   const [generationWarnings, setGenerationWarnings] = useState<string[]>([]);
   const [notice, setNotice] = useState("");
   const [stopping, setStopping] = useState(false);
   const contentGenStarted = useRef(false);
   const contentGenCancelledRef = useRef(false);
   const stopRequestedRef = useRef(false);
+  const draftRestored = useRef(false);
 
-  const pollSession = useCallback(async (id: string) => {
-    const res = await fetch(`/api/admin/ai-sessions/${id}`);
-    if (!res.ok) return;
-    const data = await res.json();
-    setAssets(data.assets ?? []);
-    if (data.allowedItemTypes) {
-      setAllowedItemTypes(parseAllowedItemTypes(data.allowedItemTypes));
-    }
-    if (typeof data.discoverYoutubeVideos === "boolean") {
-      setDiscoverYoutubeVideos(data.discoverYoutubeVideos);
-    }
-    if (typeof data.discoverImages === "boolean") {
-      setDiscoverImages(data.discoverImages);
-    }
-    if (data.blueprintJson) {
-      const bp = data.blueprintJson as CourseBlueprint;
-      setBlueprint(bp);
-      if (data.status === "ready" || data.status === "generating_content") {
-        setGenerationWarnings(warningsFromBlueprint(bp));
+  const applySessionData = useCallback(
+    (data: SessionApiPayload, options?: { restoreStep?: boolean; notice?: string }) => {
+      setSessionId(data.id);
+      setSessionStatus(data.status);
+      if (data.mode) setMode(data.mode);
+      if (data.targetModuleId) setTargetModuleId(data.targetModuleId);
+      if (data.userPrompt != null) setUserPrompt(data.userPrompt);
+      setAssets(data.assets ?? []);
+      if (data.allowedItemTypes) {
+        setAllowedItemTypes(parseAllowedItemTypes(data.allowedItemTypes));
+      }
+      if (typeof data.discoverYoutubeVideos === "boolean") {
+        setDiscoverYoutubeVideos(data.discoverYoutubeVideos);
+      }
+      if (typeof data.discoverImages === "boolean") {
+        setDiscoverImages(data.discoverImages);
+      }
+      if (typeof data.contentItemCursor === "number") {
+        setContentItemCursor(data.contentItemCursor);
+      }
+      if (typeof data.structureApproved === "boolean") {
+        setStructureApproved(data.structureApproved);
+      }
+      if (data.blueprintJson) {
+        const bp = data.blueprintJson as CourseBlueprint;
+        setBlueprint(bp);
+        if (data.status === "ready" || data.status === "generating_content") {
+          setGenerationWarnings(warningsFromBlueprint(bp));
+        }
+      }
+      if (options?.restoreStep !== false) {
+        const nextStep = wizardStepFromSessionStatus(data.status, {
+          hasAssets: (data.assets?.length ?? 0) > 0,
+          hasBlueprint: !!data.blueprintJson,
+        });
+        setStep(nextStep as WizardStep);
+      }
+      if (data.status === "failed" && data.error) {
+        setError(data.error);
+      }
+      if (options?.notice) {
+        setNotice(options.notice);
+      }
+    },
+    [],
+  );
+
+  const pollSession = useCallback(
+    async (id: string) => {
+      const res = await fetch(`/api/admin/ai-sessions/${id}`);
+      if (!res.ok) return;
+      const data = (await res.json()) as SessionApiPayload;
+      applySessionData(data);
+    },
+    [applySessionData],
+  );
+
+  useEffect(() => {
+    if (draftRestored.current) return;
+    draftRestored.current = true;
+
+    async function loadActiveDraft() {
+      try {
+        const res = await fetch(`/api/admin/courses/${course.id}/ai-session`);
+        if (!res.ok) return;
+        const data = (await res.json()) as { session: SessionApiPayload | null };
+        if (!data.session) return;
+        applySessionData(data.session, {
+          notice: `Resumed your saved AI draft (${sessionStatusLabel(data.session.status)}). Continue where you left off.`,
+        });
+      } catch {
+        // ignore — user can start fresh
       }
     }
-    if (data.status === "structure_ready") setStep("structure_preview");
-    if (data.status === "ready") setStep("preview");
-    if (data.status === "failed" && data.error) {
-      setError(data.error);
-      setNotice(
-        "Generation stopped with an error. Items completed before the failure are saved in the preview.",
-      );
+
+    void loadActiveDraft();
+  }, [course.id, applySessionData]);
+
+  useEffect(() => {
+    const active =
+      !!sessionId && sessionStatus !== null && sessionStatus !== "applied";
+    if (!active) {
+      unregister("ai-studio");
+      return;
     }
-  }, []);
+    registerSave("ai-studio", async () => true);
+    setDirty("ai-studio", true);
+    return () => unregister("ai-studio");
+  }, [sessionId, sessionStatus, registerSave, setDirty, unregister]);
 
   useEffect(() => {
     if (!sessionId || step !== "processing") return;
@@ -223,10 +314,14 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
               });
             }
           }
-          if (result.progress) setContentProgress(result.progress);
+          if (result.progress) {
+            setContentProgress(result.progress);
+            setContentItemCursor(result.progress.current);
+          }
           if (result.done) {
             const finalBp = result.blueprint ?? blueprint;
             if (finalBp) {
+              setContentItemCursor(flattenTotal(finalBp));
               setGenerationWarnings(warningsFromBlueprint(finalBp));
               const skipCount = finalBp.generationSkippedItems?.length ?? 0;
               if (skipCount > 0) {
@@ -259,7 +354,7 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
   function confirmStopGeneration(): boolean {
     if (step === "generating_content") {
       return window.confirm(
-        "Stop writing content?\n\nItems already written will be kept so you can review and apply them. Nothing still being written will be saved.",
+        "Stop writing content?\n\nItems already written will be kept. You can continue generating the rest later.",
       );
     }
     if (step === "processing") {
@@ -295,7 +390,7 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
       if (result.nextStep === "preview") {
         setStep("preview");
         setNotice(
-          "Content generation stopped. Review what was written below — you can apply partial results or rework items.",
+          "Content generation stopped. Review what was written below, or continue generating remaining items.",
         );
       } else if (result.nextStep === "generate") {
         setStep("generate");
@@ -311,6 +406,17 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
     if (allowedItemTypes.length === 0) {
       setError("Select at least one content type.");
       return;
+    }
+    if (sessionId && sessionStatus !== "applied") {
+      const ok = window.confirm(
+        "Starting a new AI session will discard your current saved draft. Continue?",
+      );
+      if (!ok) return;
+      await discardAiSessionDraft(sessionId);
+      setSessionId(null);
+      setSessionStatus(null);
+      setBlueprint(null);
+      setGenerationWarnings([]);
     }
     setBusy(true);
     setError("");
@@ -333,6 +439,7 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
         return;
       }
       setSessionId(result.session.id);
+      setSessionStatus(result.session.status);
       setAssets(result.session.assets ?? []);
       setStep("sources");
     } finally {
@@ -545,9 +652,35 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
     setStep("generating_content");
   }
 
+  async function runContinueContentGeneration() {
+    if (!sessionId) return;
+    stopRequestedRef.current = false;
+    contentGenCancelledRef.current = false;
+    setBusy(true);
+    setError("");
+    const result = await resumeContentGeneration(sessionId);
+    if (result.error) {
+      setBusy(false);
+      setError(result.error);
+      return;
+    }
+    if (result.progress) {
+      setContentProgress(result.progress);
+    }
+    setBusy(false);
+    contentGenStarted.current = false;
+    setNotice("");
+    setStep("generating_content");
+  }
+
   function flattenTotal(bp: CourseBlueprint | null) {
     if (!bp) return 0;
     return bp.modules.reduce((n, m) => n + m.items.length, 0);
+  }
+
+  function saveDraftAndLeave() {
+    unregister("ai-studio");
+    router.push(`${pathname}?tab=curriculum`);
   }
 
   async function runApply() {
@@ -560,6 +693,8 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
       setError(result.error);
       return;
     }
+    unregister("ai-studio");
+    setSessionStatus("applied");
     router.push(`/admin/courses/${course.id}/builder?tab=curriculum`);
     router.refresh();
   }
@@ -591,6 +726,15 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
   const applyBlocked =
     !previewValidation.ok ||
     (blueprint?.generationSkippedItems?.length ?? 0) > 0;
+
+  const contentGenerationCanResume =
+    !!sessionId &&
+    structureApproved &&
+    !!blueprint &&
+    contentItemCursor < flattenTotal(blueprint);
+
+  const hasActiveDraft =
+    !!sessionId && sessionStatus !== null && sessionStatus !== "applied";
 
   useEffect(() => {
     if (step === "preview" && blueprint) {
@@ -643,6 +787,25 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
           Add sources with notes, generate the course outline first, then generate
           full content for each lesson, video, and quiz one at a time.
         </p>
+        {hasActiveDraft && sessionStatus && (
+          <div className="mt-4 flex flex-col gap-3 rounded-lg border border-storm-medium-blue/30 bg-storm-medium-blue/5 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-storm-navy">
+              <span className="font-medium">Draft saved</span>
+              <span className="text-storm-navy/70">
+                {" "}
+                — {sessionStatusLabel(sessionStatus)}. Your progress is stored automatically;
+                you don&apos;t need to apply to the course until you&apos;re ready.
+              </span>
+            </p>
+            <button
+              type="button"
+              onClick={saveDraftAndLeave}
+              className="shrink-0 min-h-10 rounded-lg border border-storm-medium-blue/40 bg-white px-4 text-sm font-medium text-storm-medium-blue hover:bg-storm-medium-blue/5"
+            >
+              Save draft &amp; leave
+            </button>
+          </div>
+        )}
       </div>
 
       <nav className="flex flex-wrap gap-2">
@@ -701,6 +864,30 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
 
       {step === "intent" && (
         <div className="space-y-4 rounded-xl border bg-white p-4 sm:p-6">
+          {hasActiveDraft && sessionStatus && (
+            <div className="flex flex-col gap-3 rounded-lg border border-storm-medium-blue/30 bg-storm-medium-blue/5 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm text-storm-navy">
+                You have a saved draft ({sessionStatusLabel(sessionStatus)}). Continue where
+                you left off, or start a new session (this discards the draft).
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  const nextStep = wizardStepFromSessionStatus(sessionStatus, {
+                    hasAssets: assets.length > 0,
+                    hasBlueprint: !!blueprint,
+                  });
+                  setStep(nextStep);
+                  setNotice(
+                    `Continuing your draft (${sessionStatusLabel(sessionStatus)}).`,
+                  );
+                }}
+                className="shrink-0 min-h-10 rounded-lg bg-storm-medium-blue px-4 text-sm font-semibold text-white"
+              >
+                Continue draft
+              </button>
+            </div>
+          )}
           <fieldset className="space-y-2">
             <legend className="text-sm font-medium text-storm-navy">What to create</legend>
             {(
@@ -1266,12 +1453,33 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
           </div>
 
           <div className="flex flex-wrap gap-2">
+            {contentGenerationCanResume && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={runContinueContentGeneration}
+                className="min-h-11 rounded-lg border border-storm-medium-blue/50 bg-storm-medium-blue/5 px-6 text-sm font-medium text-storm-medium-blue disabled:opacity-50"
+              >
+                Continue generation ({contentItemCursor} of {flattenTotal(blueprint)}{" "}
+                done)
+              </button>
+            )}
             {applyBlocked && (
               <p className="w-full text-sm text-amber-900">
                 {previewValidation.issues.some((i) => i.level === "error")
-                  ? "Fix validation errors before applying."
-                  : "Regenerate or manually complete skipped items before applying."}
+                  ? "Fix validation errors before applying to the course. Your draft is still saved — you can leave and return later."
+                  : "Some items still need attention before applying. Your draft is saved — use Continue generation or rework, or come back later."}
               </p>
+            )}
+            {hasActiveDraft && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={saveDraftAndLeave}
+                className="min-h-11 rounded-lg border border-storm-medium-blue/50 px-6 text-sm font-medium text-storm-medium-blue"
+              >
+                Save draft &amp; leave
+              </button>
             )}
             <button
               type="button"

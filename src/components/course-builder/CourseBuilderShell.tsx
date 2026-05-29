@@ -1,8 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import type { AiSessionStatus } from "@prisma/client";
 import type { CourseBuilderCourse } from "@/lib/course-builder/types";
+import { sessionStatusLabel } from "@/lib/ai/session-restore";
 import { CourseInfoTab } from "./tabs/CourseInfoTab";
 import { CurriculumTab } from "./tabs/CurriculumTab";
 import { SettingsTab } from "./tabs/SettingsTab";
@@ -59,6 +62,27 @@ function CourseBuilderShellInner({
   const searchParams = useSearchParams();
   const { confirmNavigation } = useCourseBuilderUnsaved();
   const tab = (searchParams.get("tab") as BuilderTab) || "curriculum";
+  const [aiDraftStatus, setAiDraftStatus] = useState<AiSessionStatus | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadAiDraft() {
+      try {
+        const res = await fetch(`/api/admin/courses/${course.id}/ai-session`);
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as { session: { status: AiSessionStatus } | null };
+        setAiDraftStatus(data.session?.status ?? null);
+      } catch {
+        if (!cancelled) setAiDraftStatus(null);
+      }
+    }
+
+    void loadAiDraft();
+    return () => {
+      cancelled = true;
+    };
+  }, [course.id, tab]);
 
   function setTab(id: BuilderTab) {
     if (id === tab) return;
@@ -134,6 +158,26 @@ function CourseBuilderShellInner({
       {course.status === "PUBLISHED" && course.hasUnpublishedChanges && (
         <div className="mb-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           This course is published. Changes are saved as draft until you publish again.
+        </div>
+      )}
+
+      {tab !== "ai" && aiDraftStatus && (
+        <div className="mb-4 flex flex-col gap-3 rounded-xl border border-storm-medium-blue/30 bg-storm-medium-blue/5 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-storm-navy">
+            <span className="font-medium">AI draft saved</span>
+            <span className="text-storm-navy/70">
+              {" "}
+              — {sessionStatusLabel(aiDraftStatus)}. Open AI Studio to continue or apply when
+              ready.
+            </span>
+          </p>
+          <button
+            type="button"
+            onClick={() => setTab("ai")}
+            className="shrink-0 min-h-10 rounded-lg bg-storm-medium-blue px-4 text-sm font-semibold text-white"
+          >
+            Continue in AI Studio
+          </button>
         </div>
       )}
 

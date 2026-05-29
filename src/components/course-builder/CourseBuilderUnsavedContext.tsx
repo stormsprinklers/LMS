@@ -28,6 +28,8 @@ type CourseBuilderUnsavedContextValue = {
 const CourseBuilderUnsavedContext =
   createContext<CourseBuilderUnsavedContextValue | null>(null);
 
+const AI_DRAFT_DIRTY_ID = "ai-studio";
+
 export function CourseBuilderUnsavedProvider({ children }: { children: ReactNode }) {
   const [dirtyIds, setDirtyIds] = useState<Set<string>>(() => new Set());
   const saveHandlers = useRef<Map<string, SaveHandler>>(new Map());
@@ -35,6 +37,9 @@ export function CourseBuilderUnsavedProvider({ children }: { children: ReactNode
   const [saving, setSaving] = useState(false);
 
   const hasUnsavedChanges = dirtyIds.size > 0;
+  const hasAiDraftOnly =
+    dirtyIds.size === 1 && dirtyIds.has(AI_DRAFT_DIRTY_ID);
+  const hasFormDirty = [...dirtyIds].some((id) => id !== AI_DRAFT_DIRTY_ID);
 
   const setDirty = useCallback((id: string, dirty: boolean) => {
     setDirtyIds((prev) => {
@@ -107,14 +112,14 @@ export function CourseBuilderUnsavedProvider({ children }: { children: ReactNode
   }, [dirtyIds, proceed]);
 
   useEffect(() => {
-    if (!hasUnsavedChanges) return;
+    if (!hasUnsavedChanges || hasAiDraftOnly) return;
     function onBeforeUnload(e: BeforeUnloadEvent) {
       e.preventDefault();
       e.returnValue = "";
     }
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [hasUnsavedChanges]);
+  }, [hasUnsavedChanges, hasAiDraftOnly]);
 
   const value = useMemo(
     () => ({
@@ -139,11 +144,25 @@ export function CourseBuilderUnsavedProvider({ children }: { children: ReactNode
         >
           <div className="w-full max-w-md rounded-xl border border-storm-light-blue/60 bg-white p-5 shadow-xl">
             <h2 id="unsaved-changes-title" className="font-title text-lg font-bold text-storm-navy">
-              Save changes?
+              {hasAiDraftOnly ? "Leave AI Studio?" : "Save changes?"}
             </h2>
             <p className="mt-2 text-sm text-storm-navy/70">
-              You have unsaved changes in the course builder. Save them before leaving, or discard
-              your edits.
+              {hasAiDraftOnly ? (
+                <>
+                  Your AI generation draft is saved automatically. You can return to AI Studio
+                  anytime to continue, rework, or apply it to the course.
+                </>
+              ) : hasFormDirty && dirtyIds.has(AI_DRAFT_DIRTY_ID) ? (
+                <>
+                  You have unsaved form edits and an AI draft in progress. Save form changes
+                  before leaving, or discard them. Your AI draft stays saved in AI Studio.
+                </>
+              ) : (
+                <>
+                  You have unsaved changes in the course builder. Save them before leaving, or
+                  discard your edits.
+                </>
+              )}
             </p>
             <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
               <button
@@ -152,23 +171,25 @@ export function CourseBuilderUnsavedProvider({ children }: { children: ReactNode
                 disabled={saving}
                 className="min-h-10 rounded-lg border border-storm-light-blue/60 px-4 py-2 text-sm font-medium text-storm-navy disabled:opacity-50"
               >
-                Cancel
+                {hasAiDraftOnly ? "Stay" : "Cancel"}
               </button>
+              {!hasAiDraftOnly && (
+                <button
+                  type="button"
+                  onClick={discardAndProceed}
+                  disabled={saving}
+                  className="min-h-10 rounded-lg border border-storm-medium-blue/50 px-4 py-2 text-sm font-medium text-storm-medium-blue disabled:opacity-50"
+                >
+                  Don&apos;t save
+                </button>
+              )}
               <button
                 type="button"
-                onClick={discardAndProceed}
-                disabled={saving}
-                className="min-h-10 rounded-lg border border-storm-medium-blue/50 px-4 py-2 text-sm font-medium text-storm-medium-blue disabled:opacity-50"
-              >
-                Don&apos;t save
-              </button>
-              <button
-                type="button"
-                onClick={() => void saveAllAndProceed()}
+                onClick={() => (hasAiDraftOnly ? proceed() : void saveAllAndProceed())}
                 disabled={saving}
                 className="min-h-10 rounded-lg bg-storm-medium-blue px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
               >
-                {saving ? "Saving…" : "Save changes"}
+                {saving ? "Saving…" : hasAiDraftOnly ? "Leave" : "Save changes"}
               </button>
             </div>
           </div>
