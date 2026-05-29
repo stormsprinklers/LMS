@@ -27,6 +27,10 @@ export const metadata: Metadata = {
   },
   description:
     "Employee learning platform for courses, video training, manuals, exams, and certifications.",
+  icons: {
+    icon: "/icon.png",
+    apple: "/apple-icon.png",
+  },
 };
 
 export default function RootLayout({

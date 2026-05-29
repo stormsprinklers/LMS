@@ -3,13 +3,16 @@
 import { updateCourseSettings } from "@/lib/actions/course-builder";
 import type { CourseBuilderCourse } from "@/lib/course-builder/types";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { useBuilderFormDirty } from "../useBuilderFormDirty";
 
 const inputClass =
   "mt-1 w-full min-h-11 rounded-lg border border-storm-light-blue/60 px-3 py-2 text-sm";
 
 export function SettingsTab({ course }: { course: CourseBuilderCourse }) {
   const router = useRouter();
+  const formRef = useRef<HTMLFormElement>(null);
+  const { resolveSave, formDirtyProps } = useBuilderFormDirty(`course-settings-${course.id}`, formRef);
   const [busy, setBusy] = useState(false);
   const s = course.settings;
 
@@ -17,6 +20,7 @@ export function SettingsTab({ course }: { course: CourseBuilderCourse }) {
     e.preventDefault();
     setBusy(true);
     const fd = new FormData(e.currentTarget);
+    try {
     await updateCourseSettings(course.id, {
       visibility: String(fd.get("visibility")) as "PRIVATE" | "UNLISTED" | "PUBLIC",
       enrollmentMode: String(fd.get("enrollmentMode")) as "MANUAL" | "AUTO" | "SELF_ENROLL",
@@ -31,12 +35,22 @@ export function SettingsTab({ course }: { course: CourseBuilderCourse }) {
       notifyOnAssign: fd.get("notifyOnAssign") === "on",
       notifyReminder: fd.get("notifyReminder") === "on",
     });
-    setBusy(false);
+    resolveSave(true);
     router.refresh();
+    } catch {
+      resolveSave(false);
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
-    <form onSubmit={handleSubmit} className="max-w-2xl space-y-4 rounded-xl border bg-white p-4 sm:p-6">
+    <form
+      ref={formRef}
+      onSubmit={handleSubmit}
+      {...formDirtyProps}
+      className="max-w-2xl space-y-4 rounded-xl border bg-white p-4 sm:p-6"
+    >
       <h2 className="font-medium text-storm-navy">Course settings</h2>
       <label className="block text-sm">
         Visibility

@@ -19,6 +19,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useCourseBuilderUnsaved } from "../CourseBuilderUnsavedContext";
 import {
   createCourseItem,
   createModule,
@@ -42,6 +43,7 @@ export function CurriculumTab({
   allowDestructive?: boolean;
 }) {
   const router = useRouter();
+  const { confirmNavigation } = useCourseBuilderUnsaved();
   const [expanded, setExpanded] = useState<Record<string, boolean>>(
     Object.fromEntries(course.modules.map((m) => [m.id, true])),
   );
@@ -51,6 +53,31 @@ export function CurriculumTab({
     | { kind: "item"; itemId: string }
     | null
   >(null);
+
+  function updateSelection(
+    next:
+      | { kind: "module"; moduleId: string }
+      | { kind: "item"; itemId: string }
+      | null,
+  ) {
+    if (
+      selection?.kind === next?.kind &&
+      selection?.kind === "module" &&
+      next?.kind === "module" &&
+      selection.moduleId === next.moduleId
+    ) {
+      return;
+    }
+    if (
+      selection?.kind === next?.kind &&
+      selection?.kind === "item" &&
+      next?.kind === "item" &&
+      selection.itemId === next.itemId
+    ) {
+      return;
+    }
+    confirmNavigation(() => setSelection(next));
+  }
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -133,8 +160,8 @@ export function CurriculumTab({
                   onToggle={() =>
                     setExpanded((e) => ({ ...e, [mod.id]: !e[mod.id] }))
                   }
-                  onSelectModule={() => setSelection({ kind: "module", moduleId: mod.id })}
-                  onSelectItem={(id) => setSelection({ kind: "item", itemId: id })}
+                  onSelectModule={() => updateSelection({ kind: "module", moduleId: mod.id })}
+                  onSelectItem={(id) => updateSelection({ kind: "item", itemId: id })}
                   onAddItem={() => setPickerModuleId(mod.id)}
                   onItemDragEnd={(e) => handleItemDragEnd(mod.id, e)}
                   onDuplicate={async (id) => {
@@ -171,7 +198,7 @@ export function CurriculumTab({
       <BuilderDrawer
         course={course}
         selection={selection}
-        onClose={() => setSelection(null)}
+        onClose={() => updateSelection(null)}
       />
 
       <AddContentPicker

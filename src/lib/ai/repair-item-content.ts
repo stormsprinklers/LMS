@@ -1,8 +1,13 @@
 import type { BlueprintItem } from "./blueprint-schema";
 import { normalizeLessonBodyHtml } from "./lesson-html";
+import { repairLessonStormMedia } from "./media-asset-usage";
 
 export type ItemContentValidationContext = {
   assetIds?: Set<string>;
+  /** Visual media ids already used in other course items. */
+  usedMediaAssetIds?: Set<string>;
+  /** Visual media ids allowed in this item (0–1 for lessons). */
+  assignedMediaAssetIds?: string[];
 };
 
 /** Best-effort fixes before strict validation (reduces false skips). */
@@ -25,23 +30,30 @@ export function repairGeneratedItemCandidate(
 
     const linked = skeleton.linkedSourceAssetRefs ?? [];
     const ref = typeof video.sourceAssetRef === "string" ? video.sourceAssetRef.trim() : "";
+    const assigned = ctx?.assignedMediaAssetIds?.[0];
     const validRef =
-      ref && ctx?.assetIds?.has(ref)
-        ? ref
-        : linked.find((id) => ctx?.assetIds?.has(id));
+      assigned && ctx?.assetIds?.has(assigned) ?
+        assigned
+      : ref && ctx?.assetIds?.has(ref) && !ctx.usedMediaAssetIds?.has(ref) ?
+        ref
+      : linked.find(
+          (id) => ctx?.assetIds?.has(id) && !ctx.usedMediaAssetIds?.has(id),
+        );
 
     if (validRef) {
       video.sourceAssetRef = validRef;
+    } else if (ref && ctx?.usedMediaAssetIds?.has(ref)) {
+      delete video.sourceAssetRef;
     }
 
     if (
       !video.youtubeUrl &&
       !video.sourceAssetRef &&
       !video.transcript &&
-      linked.length > 0
+      assigned &&
+      ctx?.assetIds?.has(assigned)
     ) {
-      const fallback = linked.find((id) => ctx?.assetIds?.has(id));
-      if (fallback) video.sourceAssetRef = fallback;
+      video.sourceAssetRef = assigned;
     }
 
     merged.video = video;
@@ -154,7 +166,18 @@ export function repairGeneratedItemCandidate(
     if (!html && skeleton.outline?.trim()) {
       html = `<h2>Overview</h2>\n<p>${skeleton.outline.trim()}</p>`;
     }
-    lesson.bodyHtml = normalizeLessonBodyHtml(html);
+    html = normalizeLessonBodyHtml(html);
+
+    if (ctx?.assignedMediaAssetIds?.length) {
+      html = repairLessonStormMedia(html, {
+        allowedAssetIds: new Set(ctx.assignedMediaAssetIds),
+        maxMarkers: 1,
+      });
+    } else {
+      html = repairLessonStormMedia(html, { maxMarkers: 0 });
+    }
+
+    lesson.bodyHtml = html;
     merged.lesson = lesson;
   }
 

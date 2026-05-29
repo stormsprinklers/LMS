@@ -7,6 +7,16 @@ import type { CourseItemType } from "@prisma/client";
 import { YouTubeIframe } from "@/components/video/YouTubeIframe";
 import { ItemTypeIcon } from "../ItemTypeIcon";
 
+function isBlueprintItemSkipped(
+  blueprint: CourseBlueprint,
+  moduleIndex: number,
+  itemIndex: number,
+): boolean {
+  return (blueprint.generationSkippedItems ?? []).some(
+    (s) => s.moduleIndex === moduleIndex && s.itemIndex === itemIndex,
+  );
+}
+
 export function BlueprintPreview({
   blueprint,
   issues,
@@ -49,7 +59,9 @@ export function BlueprintPreview({
                 </span>
               </button>
               <ul className="ml-3 mt-1 space-y-0.5 border-l border-storm-light-blue/40 pl-3">
-                {mod.items.map((item, ii) => (
+                {mod.items.map((item, ii) => {
+                  const skipped = isBlueprintItemSkipped(blueprint, mi, ii);
+                  return (
                   <li key={ii}>
                     <button
                       type="button"
@@ -64,10 +76,16 @@ export function BlueprintPreview({
                         type={item.type as CourseItemType}
                         className="h-4 w-4 shrink-0"
                       />
-                      <span className="truncate">{item.title}</span>
+                      <span className="min-w-0 flex-1 truncate">{item.title}</span>
+                      {skipped && (
+                        <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-900">
+                          Incomplete
+                        </span>
+                      )}
                     </button>
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             </li>
           ))}
@@ -141,11 +159,25 @@ function PreviewItemDetail({
   const item = mod.items[itemIndex];
   if (!item) return null;
 
+  const skipped = isBlueprintItemSkipped(blueprint, moduleIndex, itemIndex);
+  const skipRecord = blueprint.generationSkippedItems?.find(
+    (s) => s.moduleIndex === moduleIndex && s.itemIndex === itemIndex,
+  );
+
   return (
     <div className="mt-3 text-sm text-storm-navy/80">
       <p className="font-medium text-storm-navy">
         {item.type}: {item.title}
       </p>
+      {skipped && (
+        <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-950">
+          <p className="font-medium">Content not generated</p>
+          <p className="mt-1 text-xs text-amber-900/90">
+            {skipRecord?.reason ??
+              "AI could not write this item. Use Rework below or edit after apply."}
+          </p>
+        </div>
+      )}
       {item.outline && (structureOnly || !item.lesson?.bodyHtml?.trim()) && (
         <p className="mt-2 rounded-lg bg-storm-light-grey/40 px-3 py-2 text-storm-navy/90">
           {item.outline}

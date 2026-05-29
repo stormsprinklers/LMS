@@ -9,6 +9,10 @@ import { SettingsTab } from "./tabs/SettingsTab";
 import { AssignmentsTab } from "./tabs/AssignmentsTab";
 import { PreviewPublishTab } from "./tabs/PreviewPublishTab";
 import { AiStudioTab } from "./tabs/AiStudioTab";
+import {
+  CourseBuilderUnsavedProvider,
+  useCourseBuilderUnsaved,
+} from "./CourseBuilderUnsavedContext";
 
 const TABS = [
   { id: "info", label: "Course Info" },
@@ -30,15 +34,45 @@ export function CourseBuilderShell({
   users: { id: string; email: string; name: string | null; jobRole: string | null }[];
   allowDestructive?: boolean;
 }) {
+  return (
+    <CourseBuilderUnsavedProvider>
+      <CourseBuilderShellInner
+        course={course}
+        users={users}
+        allowDestructive={allowDestructive}
+      />
+    </CourseBuilderUnsavedProvider>
+  );
+}
+
+function CourseBuilderShellInner({
+  course,
+  users,
+  allowDestructive,
+}: {
+  course: CourseBuilderCourse;
+  users: { id: string; email: string; name: string | null; jobRole: string | null }[];
+  allowDestructive: boolean;
+}) {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { confirmNavigation } = useCourseBuilderUnsaved();
   const tab = (searchParams.get("tab") as BuilderTab) || "curriculum";
 
   function setTab(id: BuilderTab) {
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("tab", id);
-    router.push(`${pathname}?${params.toString()}`);
+    if (id === tab) return;
+    confirmNavigation(() => {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("tab", id);
+      router.push(`${pathname}?${params.toString()}`);
+    });
+  }
+
+  function leaveBuilder(href: string) {
+    confirmNavigation(() => {
+      router.push(href);
+    });
   }
 
   const statusLabel =
@@ -54,12 +88,13 @@ export function CourseBuilderShell({
     <div className="min-w-0">
       <div className="mb-4 flex flex-col gap-3 border-b border-storm-light-blue/60 pb-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
-          <Link
-            href="/admin/courses"
-            className="text-sm text-storm-medium-blue no-underline hover:underline"
+          <button
+            type="button"
+            onClick={() => leaveBuilder("/admin/courses")}
+            className="text-sm text-storm-medium-blue hover:underline"
           >
             ← Courses
-          </Link>
+          </button>
           <h1 className="font-title mt-1 truncate text-xl font-bold text-storm-navy sm:text-2xl">
             Course Builder: {course.title}
           </h1>
@@ -77,16 +112,18 @@ export function CourseBuilderShell({
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
           {allowDestructive && (
-            <Link
-              href={`/admin/grades/courses/${course.id}`}
-              className="inline-flex min-h-10 items-center rounded-lg border border-storm-medium-blue/50 px-4 py-2 text-sm font-medium text-storm-medium-blue no-underline hover:bg-storm-medium-blue/5"
+            <button
+              type="button"
+              onClick={() => leaveBuilder(`/admin/grades/courses/${course.id}`)}
+              className="inline-flex min-h-10 items-center rounded-lg border border-storm-medium-blue/50 px-4 py-2 text-sm font-medium text-storm-medium-blue hover:bg-storm-medium-blue/5"
             >
               Learner grades
-            </Link>
+            </button>
           )}
           <Link
             href={`/courses/${course.slug}?preview=1`}
             target="_blank"
+            rel="noopener noreferrer"
             className="inline-flex min-h-10 items-center rounded-lg border border-storm-light-blue/60 px-4 py-2 text-sm font-medium text-storm-navy no-underline"
           >
             Preview

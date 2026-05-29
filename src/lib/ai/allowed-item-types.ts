@@ -2,6 +2,11 @@ import type { AiGenerationMode, CourseItemType } from "@prisma/client";
 import type { CourseBlueprint, CourseStructure } from "./blueprint-schema";
 import { itemTypeSchema } from "./blueprint-schema";
 import type { z } from "zod";
+import {
+  EXAM_AI_QUESTION_MAX,
+  EXAM_AI_QUESTION_MIN,
+  QUIZ_AI_QUESTION_COUNT,
+} from "./exam-question-counts";
 
 export type BlueprintItemType = z.infer<typeof itemTypeSchema>;
 
@@ -39,6 +44,27 @@ export const DEFAULT_ALLOWED_ITEM_TYPES: BlueprintItemType[] = [
   "VIDEO",
 ];
 
+type AssetLike = {
+  kind: string;
+  includeRecording?: boolean | null;
+};
+
+export function hasUsableVideoAsset(assets: AssetLike[]): boolean {
+  return assets.some(
+    (a) => a.kind === "video" && a.includeRecording !== false,
+  );
+}
+
+/** Remove VIDEO when no video resource is available in this AI session. */
+export function constrainAllowedTypesForAssets(
+  allowed: BlueprintItemType[],
+  assets: AssetLike[],
+): BlueprintItemType[] {
+  if (!allowed.includes("VIDEO")) return allowed;
+  if (hasUsableVideoAsset(assets)) return allowed;
+  return allowed.filter((t) => t !== "VIDEO");
+}
+
 export function getCourseStructureGuidance(
   allowed: BlueprintItemType[],
   mode: AiGenerationMode,
@@ -52,7 +78,7 @@ export function getCourseStructureGuidance(
   }
   if (allowed.includes("QUIZ")) {
     lines.push(
-      "- Add QUIZ items after lesson sections to check understanding before moving on.",
+      `- Add QUIZ items after lesson sections (${QUIZ_AI_QUESTION_COUNT} questions each when content is generated).`,
     );
   }
   if (allowed.includes("VIDEO")) {
@@ -63,8 +89,8 @@ export function getCourseStructureGuidance(
   if (allowed.includes("EXAM")) {
     lines.push(
       mode === "course"
-        ? "- End each module with an EXAM. The last item in the final module should be the course capstone EXAM."
-        : "- End the module with an EXAM as the final assessment.",
+        ? `- End each module with an EXAM (${EXAM_AI_QUESTION_MIN}–${EXAM_AI_QUESTION_MAX} questions when content is generated). The last item in the final module should be the course capstone EXAM.`
+        : `- End the module with an EXAM (${EXAM_AI_QUESTION_MIN}–${EXAM_AI_QUESTION_MAX} questions when content is generated) as the final assessment.`,
     );
   }
   if (allowed.includes("SCENARIO")) {

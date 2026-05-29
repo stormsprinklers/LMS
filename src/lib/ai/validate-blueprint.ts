@@ -10,6 +10,7 @@ export type BlueprintIssue = {
 export function validateStructureBlueprint(
   structure: CourseStructure,
   allowed: BlueprintItemType[] = ["LESSON", "QUIZ", "EXAM", "VIDEO"],
+  options?: { videoAssetIds?: Set<string> },
 ): {
   ok: boolean;
   issues: BlueprintIssue[];
@@ -25,6 +26,23 @@ export function validateStructureBlueprint(
 
   structure.modules.forEach((mod, mi) => {
     mod.items.forEach((item, ii) => {
+      if (item.type === "VIDEO") {
+        const linked = item.linkedSourceAssetRefs ?? [];
+        const videoIds = options?.videoAssetIds ?? new Set<string>();
+        if (videoIds.size === 0) {
+          issues.push({
+            level: "error",
+            message: `Module "${mod.title}" includes VIDEO "${item.title}" but no video resource is in session sources.`,
+            path: `modules[${mi}].items[${ii}]`,
+          });
+        } else if (!linked.some((id) => videoIds.has(id))) {
+          issues.push({
+            level: "error",
+            message: `VIDEO "${item.title}" must reference a linked video source id from uploads.`,
+            path: `modules[${mi}].items[${ii}].linkedSourceAssetRefs`,
+          });
+        }
+      }
       if (!item.outline?.trim()) {
         issues.push({
           level: "warning",
@@ -146,8 +164,8 @@ export function validateBlueprint(
           /* expected before content phase */
         } else if (!hasBody) {
           issues.push({
-            level: "warning",
-            message: `Lesson "${item.title}" has empty content.`,
+            level: "error",
+            message: `Lesson "${item.title}" has no generated content.`,
             path: `${path}.lesson`,
           });
         }

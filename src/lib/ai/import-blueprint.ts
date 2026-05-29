@@ -150,7 +150,7 @@ async function createItemFromBlueprint(
           sourceAsset?.transcript ??
           sourceAsset?.extractedText ??
           null,
-        requiredWatchPercent: item.video?.requiredWatchPercent ?? 80,
+        requiredWatchPercent: item.video?.requiredWatchPercent ?? 75,
         completionRule: "watch_percent",
         status:
           item.video?.youtubeUrl ||

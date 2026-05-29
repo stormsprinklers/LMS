@@ -21,10 +21,19 @@ import { importCourseBlueprint } from "@/lib/ai/import-blueprint";
 import { requireOpenAI, AI_GENERATION_MODEL } from "@/lib/ai/openai-client";
 import { isYouTubeUrl } from "@/lib/video/youtube";
 import { flattenBlueprintItems } from "@/lib/ai/blueprint-items";
+import {
+  auditIncompleteBlueprintItems,
+  itemNeedsContent,
+  missingContentReason,
+} from "@/lib/ai/blueprint-items";
+import {
+  distributeVisualMediaAcrossBlueprint,
+} from "@/lib/ai/media-asset-usage";
 import { generateItemContent } from "@/lib/ai/generate-item-content";
 import { parseGenerationMessages } from "@/lib/ai/generation-thread";
 import {
   parseAllowedItemTypes,
+  constrainAllowedTypesForAssets,
   filterStructureByAllowedTypes,
   filterBlueprintByAllowedTypes,
   type BlueprintItemType,
@@ -451,7 +460,10 @@ export async function generateCourseStructure(sessionId: string) {
     },
   });
 
-  const allowed = sessionAllowedTypes(aiSession.allowedItemTypes);
+  const allowed = constrainAllowedTypesForAssets(
+    sessionAllowedTypes(aiSession.allowedItemTypes),
+    aiSession.assets,
+  );
 
   try {
     const { system, user } = buildStructureGenerationMessages({
@@ -504,11 +516,17 @@ const STRUCTURE_MAX_TOKENS = 8_192;
       );
     }
     const skeleton = structureToBlueprint(structure);
-    const enriched = enrichBlueprintWithAssets(
-      filterBlueprintByAllowedTypes(skeleton, allowed),
-      aiSession.assets,
+    let filtered = filterBlueprintByAllowedTypes(skeleton, allowed);
+    filtered = distributeVisualMediaAcrossBlueprint(filtered, aiSession.assets);
+    const enriched = enrichBlueprintWithAssets(filtered, aiSession.assets);
+    const videoAssetIds = new Set(
+      aiSession.assets
+        .filter((a) => a.kind === "video" && a.includeRecording !== false)
+        .map((a) => a.id),
     );
-    const validation = validateStructureBlueprint(structure, allowed);
+    const validation = validateStructureBlueprint(structure, allowed, {
+      videoAssetIds,
+    });
 
     const latest = await prisma.aiGenerationSession.findUnique({
       where: { id: sessionId },
@@ -568,15 +586,26 @@ export async function generateNextBlueprintItem(sessionId: string) {
   }
 
   const allowed = sessionAllowedTypes(aiSession.allowedItemTypes);
-  const blueprint = filterBlueprintByAllowedTypes(
+  const cursor = aiSession.contentItemCursor;
+
+  let blueprint = filterBlueprintByAllowedTypes(
     enrichBlueprintWithAssets(
       courseBlueprintSchema.parse(aiSession.blueprintJson),
       aiSession.assets,
     ),
     allowed,
   );
+
+  if (cursor === 0) {
+    blueprint = distributeVisualMediaAcrossBlueprint(blueprint, aiSession.assets);
+    blueprint = enrichBlueprintWithAssets(blueprint, aiSession.assets);
+    await prisma.aiGenerationSession.update({
+      where: { id: sessionId },
+      data: { blueprintJson: blueprint as object },
+    });
+  }
+
   const flat = flattenBlueprintItems(blueprint);
-  const cursor = aiSession.contentItemCursor;
 
   if (cursor >= flat.length) {
     await prisma.aiGenerationSession.update({
@@ -630,13 +659,37 @@ export async function generateNextBlueprintItem(sessionId: string) {
               },
         ),
       };
+
+      if (itemNeedsContent(generation.item)) {
+        skippedThisItem = {
+          moduleIndex,
+          itemIndex,
+          title: item.title,
+          moduleTitle,
+          reason: missingContentReason(generation.item),
+        };
+        nextBlueprint = {
+          ...nextBlueprint,
+          generationSkippedItems: [
+            ...existingSkipped.filter(
+              (s) =>
+                !(
+                  s.moduleIndex === moduleIndex && s.itemIndex === itemIndex
+                ),
+            ),
+            skippedThisItem,
+          ],
+        };
+      }
     } else {
       skippedThisItem = {
         moduleIndex,
         itemIndex,
         title: item.title,
         moduleTitle,
-        reason: generation.reason,
+        reason:
+          generation.reason?.trim() ||
+          "Content generation failed after multiple attempts.",
       };
       nextBlueprint = {
         ...blueprint,
@@ -655,6 +708,7 @@ export async function generateNextBlueprintItem(sessionId: string) {
     const enriched = enrichBlueprintWithAssets(nextBlueprint, aiSession.assets);
     const nextCursor = cursor + 1;
     const done = nextCursor >= flat.length;
+    const audited = done ? auditIncompleteBlueprintItems(enriched) : enriched;
 
     const latest = await prisma.aiGenerationSession.findUnique({
       where: { id: sessionId },
@@ -667,7 +721,7 @@ export async function generateNextBlueprintItem(sessionId: string) {
     await prisma.aiGenerationSession.update({
       where: { id: sessionId },
       data: {
-        blueprintJson: enriched as object,
+        blueprintJson: audited as object,
         generationMessages: generation.thread as object[],
         contentItemCursor: nextCursor,
         status: done ? "ready" : "generating_content",
@@ -679,21 +733,75 @@ export async function generateNextBlueprintItem(sessionId: string) {
 
     return {
       done,
-      blueprint: enriched,
+      blueprint: audited,
       progress: {
         current: nextCursor,
         total: flat.length,
         label: `${moduleTitle} → ${item.title}`,
       },
       skippedItem: skippedThisItem,
+      skippedCount: audited.generationSkippedItems?.length ?? 0,
     };
   } catch (e) {
     const message = e instanceof Error ? e.message : "Content generation failed.";
+    const skippedThisItem = {
+      moduleIndex,
+      itemIndex,
+      title: item.title,
+      moduleTitle,
+      reason: message,
+    };
+    const nextBlueprint = auditIncompleteBlueprintItems(
+      enrichBlueprintWithAssets(
+        {
+          ...blueprint,
+          generationSkippedItems: [
+            ...(blueprint.generationSkippedItems ?? []).filter(
+              (s) =>
+                !(
+                  s.moduleIndex === moduleIndex && s.itemIndex === itemIndex
+                ),
+            ),
+            skippedThisItem,
+          ],
+        },
+        aiSession.assets,
+      ),
+    );
+    const nextCursor = cursor + 1;
+    const done = nextCursor >= flat.length;
+
+    const latest = await prisma.aiGenerationSession.findUnique({
+      where: { id: sessionId },
+      select: { status: true },
+    });
+    if (latest?.status !== "generating_content") {
+      return { cancelled: true as const, blueprint: nextBlueprint };
+    }
+
     await prisma.aiGenerationSession.update({
       where: { id: sessionId },
-      data: { status: "failed", error: message },
+      data: {
+        blueprintJson: nextBlueprint as object,
+        contentItemCursor: nextCursor,
+        status: done ? "ready" : "generating_content",
+        error: null,
+      },
     });
-    return { error: message };
+
+    revalidatePath(`/admin/courses/${aiSession.courseId}/builder`);
+
+    return {
+      done,
+      blueprint: nextBlueprint,
+      progress: {
+        current: nextCursor,
+        total: flat.length,
+        label: `${moduleTitle} → ${item.title}`,
+      },
+      skippedItem: skippedThisItem,
+      skippedCount: nextBlueprint.generationSkippedItems?.length ?? 0,
+    };
   }
 }
 

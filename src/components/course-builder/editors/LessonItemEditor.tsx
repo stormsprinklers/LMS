@@ -5,6 +5,7 @@ import { TiptapEditor, type TiptapEditorHandle } from "./TiptapEditor";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import type { ContentStatus } from "@prisma/client";
+import { useBuilderFormDirty } from "../useBuilderFormDirty";
 
 const inputClass =
   "mt-1 w-full min-h-10 rounded-lg border border-storm-light-blue/60 px-3 py-2 text-sm";
@@ -34,6 +35,11 @@ export function LessonItemEditor({
   onSaved?: () => void;
 }) {
   const router = useRouter();
+  const formRef = useRef<HTMLFormElement>(null);
+  const { markDirty, resolveSave, formDirtyProps } = useBuilderFormDirty(
+    `lesson-${item.id}`,
+    formRef,
+  );
   const editorRef = useRef<TiptapEditorHandle>(null);
   const initialJson = item.lessonContent?.bodyJson ?? EMPTY_DOC;
   const [bodyJson, setBodyJson] = useState<unknown>(initialJson);
@@ -75,22 +81,25 @@ export function LessonItemEditor({
       minimumTimeSeconds: minimumTimeSeconds ?? undefined,
     });
 
-    setBusy(false);
-
     if ("error" in (contentResult ?? {}) && contentResult?.error) {
+      setBusy(false);
       setError(contentResult.error);
+      resolveSave(false);
       return;
     }
+
+    setBusy(false);
 
     setBodyJson(json);
     setBodyHtml(html);
     setSaved(true);
+    resolveSave(true);
     onSaved?.();
     router.refresh();
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-3">
+    <form ref={formRef} onSubmit={handleSubmit} {...formDirtyProps} className="space-y-3">
       <label className="block text-sm">
         Title
         <input name="title" defaultValue={item.title} required className={inputClass} />
@@ -105,6 +114,7 @@ export function LessonItemEditor({
             setBodyJson(json);
             setBodyHtml(html);
             setSaved(false);
+            markDirty();
           }}
         />
       </div>

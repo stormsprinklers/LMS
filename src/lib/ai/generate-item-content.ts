@@ -9,7 +9,20 @@ import {
   getCourseStructureGuidance,
 } from "./allowed-item-types";
 import { LESSON_HTML_AUTHORING_GUIDE } from "./lesson-html";
+import {
+  EXAM_AI_QUESTION_MAX,
+  EXAM_AI_QUESTION_MIN,
+  QUIZ_AI_QUESTION_COUNT,
+} from "./exam-question-counts";
+import { generateCourseAssessmentQuestions } from "./generate-course-assessment";
+import {
+  buildMediaInstructionsForItem,
+  collectUsedVisualMediaIds,
+  MEDIA_USAGE_GUIDE,
+  pickVisualMediaForItem,
+} from "./media-asset-usage";
 import { compactItemSummary, repairGeneratedItemCandidate } from "./repair-item-content";
+import type { ItemContentValidationContext } from "./repair-item-content";
 import {
   buildItemValidationRetryMessage,
   MAX_API_ATTEMPTS,
@@ -64,8 +77,9 @@ Allowed item types: ${formatAllowedTypesForPrompt(allowedItemTypes)}.
 ${getCourseStructureGuidance(allowedItemTypes, blueprint.mode)}
 ${assetIdList}
 ${LESSON_HTML_AUTHORING_GUIDE}
+${MEDIA_USAGE_GUIDE}
 Author instructions: ${userPrompt || "(none)"}
-Return valid JSON only. LESSON items need lesson.bodyHtml using h2 titles and p paragraphs plus storm-media markers for inline sources. EXAM/QUIZ need exam.questions[] with options and isCorrect on at least one option per question. VIDEO: use youtubeUrl OR sourceAssetRef from the valid id list OR transcript.`,
+Return valid JSON only. LESSON items need lesson.bodyHtml with <h2> titles and <p> paragraphs (title/paragraph format), at most one short <ul> list, plus at most one storm-media marker only when assigned to this item. Each photo/video upload may appear once in the entire course. QUIZ items need exactly ${QUIZ_AI_QUESTION_COUNT} questions in exam.questions[]. EXAM items need ${EXAM_AI_QUESTION_MIN}–${EXAM_AI_QUESTION_MAX} questions in exam.questions[]. Each question needs options with isCorrect on at least one option. VIDEO: use youtubeUrl OR sourceAssetRef from the valid id list OR transcript.`,
     },
     {
       role: "user",
@@ -128,6 +142,87 @@ async function requestItemJson(
   return { raw, parsed, truncated };
 }
 
+async function generateAssessmentItemContent(options: {
+  skeleton: BlueprintItem;
+  blueprint: CourseBlueprint;
+  moduleIndex: number;
+  itemIndex: number;
+  userPrompt: string;
+  persistedThread: GenerationChatMessage[];
+  userMessage: string;
+  itemContentCtx: ItemContentValidationContext;
+  totalAttemptsStart: number;
+}): Promise<GenerateItemContentResult> {
+  const {
+    skeleton,
+    blueprint,
+    moduleIndex,
+    itemIndex,
+    userPrompt,
+    persistedThread,
+    userMessage,
+    itemContentCtx,
+    totalAttemptsStart,
+  } = options;
+
+  const itemType = skeleton.type as "QUIZ" | "EXAM";
+  let lastError = "";
+
+  for (let attempt = 1; attempt <= MAX_VALIDATION_ATTEMPTS; attempt++) {
+    const generated = await generateCourseAssessmentQuestions({
+      itemType,
+      blueprint,
+      moduleIndex,
+      itemIndex,
+      userPrompt,
+    });
+
+    if (!generated.ok) {
+      lastError = generated.error;
+      continue;
+    }
+
+    const repaired = repairGeneratedItemCandidate(
+      skeleton,
+      {
+        exam: {
+          questions: generated.questions,
+        },
+      },
+      { assetIds: itemContentCtx.assetIds },
+    );
+
+    const validation = validateGeneratedItemContent(skeleton, repaired, itemContentCtx);
+
+    if (validation.ok) {
+      const thread: GenerationChatMessage[] = [
+        ...persistedThread,
+        { role: "user", content: userMessage },
+        {
+          role: "assistant",
+          content: compactItemSummary(validation.item),
+        },
+      ];
+      return {
+        ok: true,
+        item: validation.item,
+        thread,
+        attempts: totalAttemptsStart + attempt,
+      };
+    }
+
+    lastError = validation.issues.join(" ");
+  }
+
+  return {
+    ok: false,
+    skipped: true,
+    reason: lastError || "Could not generate assessment questions.",
+    thread: persistedThread,
+    attempts: totalAttemptsStart + MAX_VALIDATION_ATTEMPTS,
+  };
+}
+
 export type GenerateItemContentResult =
   | {
       ok: true;
@@ -169,6 +264,22 @@ export async function generateItemContent(options: {
   const assetIds = assets.map((a) => a.id);
   const assetIdSet = new Set(assetIds);
 
+  const usedMediaAssetIds = collectUsedVisualMediaIds(blueprint, {
+    moduleIndex,
+    itemIndex,
+  });
+  const assignedMediaAssetId = pickVisualMediaForItem(
+    skeleton,
+    assets,
+    usedMediaAssetIds,
+  );
+  const itemContentCtx = {
+    assetIds: assetIdSet,
+    usedMediaAssetIds,
+    assignedMediaAssetIds:
+      assignedMediaAssetId ? [assignedMediaAssetId] : [],
+  };
+
   let persistedThread =
     options.thread.length > 0
       ? [...options.thread]
@@ -185,7 +296,23 @@ export async function generateItemContent(options: {
     itemIndex,
     assets,
     allowedItemTypes,
+    usedMediaAssetIds,
+    assignedMediaAssetId,
   });
+
+  if (skeleton.type === "QUIZ" || skeleton.type === "EXAM") {
+    return generateAssessmentItemContent({
+      skeleton,
+      blueprint,
+      moduleIndex,
+      itemIndex,
+      userPrompt,
+      persistedThread,
+      userMessage,
+      itemContentCtx,
+      totalAttemptsStart: 0,
+    });
+  }
 
   let workingThread: GenerationChatMessage[] = [
     ...persistedThread,
@@ -225,12 +352,14 @@ export async function generateItemContent(options: {
           itemPayload && typeof itemPayload === "object"
             ? (itemPayload as Record<string, unknown>)
             : {},
-          { assetIds: assetIdSet },
+          itemContentCtx,
         );
 
-        const validation = validateGeneratedItemContent(skeleton, repaired, {
-          assetIds: assetIdSet,
-        });
+        const validation = validateGeneratedItemContent(
+          skeleton,
+          repaired,
+          itemContentCtx,
+        );
 
         if (validation.ok) {
           persistedThread = [
@@ -278,7 +407,10 @@ export async function generateItemContent(options: {
   return {
     ok: false,
     skipped: true,
-    reason: lastIssues.join(" "),
+    reason:
+      lastIssues.length > 0 ?
+        lastIssues.join(" ")
+      : "Content generation failed after multiple attempts.",
     thread: persistedThread,
     attempts: totalAttempts,
   };

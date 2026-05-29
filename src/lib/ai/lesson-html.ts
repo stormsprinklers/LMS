@@ -3,15 +3,21 @@ import { isYouTubeUrl, parseYouTubeVideoId, youtubeNoCookieEmbedUrl } from "@/li
 /** Injected into AI prompts — lessons must use this HTML shape. */
 export const LESSON_HTML_AUTHORING_GUIDE = `
 LESSON HTML FORMAT (required for every LESSON item):
-- Structure content with section titles and paragraphs only (no bare text outside tags).
+- Write in section title + paragraph form only. No walls of bullets; teach in prose.
 - Use <h2>Section title</h2> for each major section (one idea per section).
-- Use <p>Paragraph text.</p> for every paragraph. Add a blank line between sections in your mind; each paragraph is its own <p> tag.
-- Use <ul><li>...</li></ul> for bullet lists when helpful.
-- Place photos and videos INLINE where they support the material using self-closing markers:
+- Use <p>Paragraph text.</p> for every paragraph. Each paragraph is its own <p> tag.
+- At most ONE bullet list in the entire lesson, and keep it short (3–6 items max). Use <ul><li>...</li></ul> only when a short checklist is clearer than a paragraph. Prefer paragraphs over lists.
+- Do not add a second <ul> or <ol>. Do not use nested lists.
+- Place photos and videos INLINE using self-closing markers (at most one per lesson, only when assigned to this item):
   <storm-media asset-id="EXACT_ASSET_ID" caption="Short caption" />
-  Use only asset ids from the valid source list. Put the marker on its own line between paragraphs when possible.
-- Do not use <h1>, <script>, or inline styles. Do not use markdown (# headings); use HTML only.
+  Use only asset ids from the valid source list. Each asset id may appear once in the entire course.
+- Do not use <h1>, <h3>, <script>, or inline styles. Do not use markdown (# headings); use HTML only.
 `.trim();
+
+/** Max bullet/numbered lists per AI lesson. */
+export const MAX_LESSON_BULLET_LISTS = 1;
+/** Max <li> items in the single allowed list. */
+export const MAX_LESSON_BULLET_ITEMS = 6;
 
 export type LessonMediaAsset = {
   id: string;
@@ -126,6 +132,8 @@ export function normalizeLessonBodyHtml(html: string): string {
       .join("\n");
   }
 
+  out = repairLessonBulletLists(out);
+
   return out;
 }
 
@@ -139,4 +147,76 @@ export function prepareLessonHtmlForDisplay(
 
 export function lessonHtmlUsesStormMedia(html: string): boolean {
   return /<storm-media\b/i.test(html);
+}
+
+function stripTags(html: string): string {
+  return html.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+}
+
+export function countLessonBulletLists(html: string): number {
+  const matches = html.match(/<(ul|ol)\b/gi);
+  return matches?.length ?? 0;
+}
+
+export function countLargestListItems(html: string): number {
+  let max = 0;
+  const lists = html.matchAll(/<(ul|ol)\b[^>]*>([\s\S]*?)<\/\1>/gi);
+  for (const m of lists) {
+    const inner = m[2] ?? "";
+    const items = inner.match(/<li\b/gi);
+    max = Math.max(max, items?.length ?? 0);
+  }
+  return max;
+}
+
+export function validateLessonHtmlStructure(html: string): string[] {
+  const issues: string[] = [];
+  const listCount = countLessonBulletLists(html);
+  if (listCount > MAX_LESSON_BULLET_LISTS) {
+    issues.push(
+      `lesson.bodyHtml: Use at most ${MAX_LESSON_BULLET_LISTS} bullet/numbered list (found ${listCount}). Write the rest as <p> paragraphs.`,
+    );
+  }
+  const itemCount = countLargestListItems(html);
+  if (itemCount > MAX_LESSON_BULLET_ITEMS) {
+    issues.push(
+      `lesson.bodyHtml: The bullet list may have at most ${MAX_LESSON_BULLET_ITEMS} items (found ${itemCount}). Shorten the list or use paragraphs.`,
+    );
+  }
+  if (/<h1\b/i.test(html)) {
+    issues.push("lesson.bodyHtml: Use <h2> for section titles, not <h1>.");
+  }
+  if (/<h3\b/i.test(html)) {
+    issues.push("lesson.bodyHtml: Use <h2> section titles and <p> paragraphs; avoid <h3>.");
+  }
+  return issues;
+}
+
+/** Convert extra lists to paragraphs; trim oversized single list. */
+export function repairLessonBulletLists(html: string): string {
+  let listIndex = 0;
+  return html.replace(
+    /<(ul|ol)\b([^>]*)>([\s\S]*?)<\/\1>/gi,
+    (match, tag: string, attrs: string, inner: string) => {
+      listIndex++;
+      const items = [...inner.matchAll(/<li[^>]*>([\s\S]*?)<\/li>/gi)];
+
+      if (listIndex === 1) {
+        if (items.length <= MAX_LESSON_BULLET_ITEMS) return match;
+        const trimmed = items
+          .slice(0, MAX_LESSON_BULLET_ITEMS)
+          .map((m) => `<li>${m[1]}</li>`)
+          .join("");
+        return `<${tag}${attrs}>${trimmed}</${tag}>`;
+      }
+
+      return items
+        .map((m) => {
+          const text = stripTags(m[1] ?? "");
+          return text ? `<p>${escapeHtml(text)}</p>` : "";
+        })
+        .filter(Boolean)
+        .join("\n");
+    },
+  );
 }

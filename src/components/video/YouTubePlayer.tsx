@@ -6,6 +6,7 @@ import { useEffect, useId, useRef } from "react";
 type YTPlayer = {
   destroy: () => void;
   getCurrentTime: () => number;
+  getDuration: () => number;
   seekTo: (seconds: number, allowSeekAhead: boolean) => void;
 };
 
@@ -69,7 +70,7 @@ export function YouTubePlayer({
 }: {
   urlOrId: string;
   startSeconds?: number;
-  onTimeUpdate?: (seconds: number) => void;
+  onTimeUpdate?: (seconds: number, durationSeconds?: number) => void;
   onEnded?: () => void;
   title?: string;
 }) {
@@ -104,27 +105,39 @@ export function YouTubePlayer({
             if (startSeconds > 0) {
               event.target.seekTo(startSeconds, true);
             }
+            const duration = Math.floor(event.target.getDuration?.() ?? 0);
+            if (duration > 0) {
+              onTimeUpdateRef.current?.(startSeconds, duration);
+            }
           },
           onStateChange: (event) => {
             const YT = window.YT;
             if (!YT) return;
 
+            const tick = () => {
+              const current = Math.floor(playerRef.current?.getCurrentTime() ?? 0);
+              const duration = Math.floor(playerRef.current?.getDuration?.() ?? 0);
+              onTimeUpdateRef.current?.(current, duration > 0 ? duration : undefined);
+            };
+
             if (event.data === YT.PlayerState.PLAYING && onTimeUpdateRef.current) {
               if (intervalRef.current) clearInterval(intervalRef.current);
-              intervalRef.current = setInterval(() => {
-                const current = Math.floor(playerRef.current?.getCurrentTime() ?? 0);
-                onTimeUpdateRef.current?.(current);
-              }, 10_000);
+              tick();
+              intervalRef.current = setInterval(tick, 10_000);
             }
 
             if (event.data === YT.PlayerState.ENDED) {
               if (intervalRef.current) clearInterval(intervalRef.current);
+              tick();
               onEndedRef.current?.();
             }
 
-            if (event.data === YT.PlayerState.PAUSED && intervalRef.current) {
-              clearInterval(intervalRef.current);
-              intervalRef.current = null;
+            if (event.data === YT.PlayerState.PAUSED) {
+              tick();
+              if (intervalRef.current) {
+                clearInterval(intervalRef.current);
+                intervalRef.current = null;
+              }
             }
           },
         },

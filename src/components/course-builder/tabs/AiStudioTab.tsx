@@ -43,10 +43,30 @@ function formatSkippedItemWarning(item: {
   const base = `"${item.title}" (${item.moduleTitle})`;
   if (item.reason?.trim()) {
     const short =
-      item.reason.length > 200 ? `${item.reason.slice(0, 200)}…` : item.reason;
+      item.reason.length > 280 ? `${item.reason.slice(0, 280)}…` : item.reason;
     return `${base}: ${short}`;
   }
-  return `${base}: validation failed after multiple attempts — fill in manually.`;
+  return `${base}: validation failed after multiple attempts — fill in manually in the course builder.`;
+}
+
+function warningsFromBlueprint(blueprint: CourseBlueprint): string[] {
+  return (blueprint.generationSkippedItems ?? []).map((s) =>
+    formatSkippedItemWarning({
+      title: s.title,
+      moduleTitle: s.moduleTitle,
+      reason: s.reason,
+    }),
+  );
+}
+
+function isBlueprintItemSkipped(
+  blueprint: CourseBlueprint,
+  moduleIndex: number,
+  itemIndex: number,
+): boolean {
+  return (blueprint.generationSkippedItems ?? []).some(
+    (s) => s.moduleIndex === moduleIndex && s.itemIndex === itemIndex,
+  );
 }
 
 function assetsNeedProcessing(
@@ -138,11 +158,20 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
       setAllowedItemTypes(parseAllowedItemTypes(data.allowedItemTypes));
     }
     if (data.blueprintJson) {
-      setBlueprint(data.blueprintJson as CourseBlueprint);
+      const bp = data.blueprintJson as CourseBlueprint;
+      setBlueprint(bp);
+      if (data.status === "ready" || data.status === "generating_content") {
+        setGenerationWarnings(warningsFromBlueprint(bp));
+      }
     }
     if (data.status === "structure_ready") setStep("structure_preview");
     if (data.status === "ready") setStep("preview");
-    if (data.status === "failed" && data.error) setError(data.error);
+    if (data.status === "failed" && data.error) {
+      setError(data.error);
+      setNotice(
+        "Generation stopped with an error. Items completed before the failure are saved in the preview.",
+      );
+    }
   }, []);
 
   useEffect(() => {
@@ -172,15 +201,34 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
             setError(result.error);
             break;
           }
-          if (result.blueprint) setBlueprint(result.blueprint);
-          if (result.progress) setContentProgress(result.progress);
-          if (result.skippedItem) {
-            setGenerationWarnings((prev) => [
-              ...prev,
-              formatSkippedItemWarning(result.skippedItem!),
-            ]);
+          if (result.blueprint) {
+            setBlueprint(result.blueprint);
+            if (result.skippedItem) {
+              setGenerationWarnings((prev) => {
+                const next = [
+                  ...prev,
+                  formatSkippedItemWarning(result.skippedItem!),
+                ];
+                return [...new Set(next)];
+              });
+            }
           }
+          if (result.progress) setContentProgress(result.progress);
           if (result.done) {
+            const finalBp = result.blueprint ?? blueprint;
+            if (finalBp) {
+              setGenerationWarnings(warningsFromBlueprint(finalBp));
+              const skipCount = finalBp.generationSkippedItems?.length ?? 0;
+              if (skipCount > 0) {
+                setNotice(
+                  `Finished writing content. ${skipCount} item${skipCount === 1 ? "" : "s"} could not be completed — review the list below for reasons.`,
+                );
+              } else {
+                setNotice(
+                  "All items were generated successfully. Review the preview, then apply to your course.",
+                );
+              }
+            }
             setStep("preview");
             break;
           }
@@ -526,6 +574,7 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
   useEffect(() => {
     if (step === "preview" && blueprint) {
       setIssues(validateBlueprint(blueprint).issues);
+      setGenerationWarnings(warningsFromBlueprint(blueprint));
     }
   }, [step, blueprint]);
 
@@ -540,9 +589,7 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
   ];
 
   const showSpinner =
-    busy ||
-    step === "processing" ||
-    step === "generating_content";
+    step === "processing" || (busy && step !== "generating_content");
 
   return (
     <div className="relative max-w-5xl space-y-6">
@@ -552,9 +599,7 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
             label={
               step === "processing"
                 ? "Processing sources…"
-                : step === "generating_content" && contentProgress
-                  ? `Writing content (${contentProgress.current} of ${contentProgress.total})${contentProgress.label ? `: ${contentProgress.label}` : ""}`
-                  : "AI is working…"
+                : "AI is working…"
             }
           />
           {sessionId && (
@@ -593,6 +638,33 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
           </span>
         ))}
       </nav>
+
+      {generationWarnings.length > 0 &&
+        (step === "generating_content" || step === "preview") && (
+        <div
+          className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950"
+          role="alert"
+        >
+          <p className="font-semibold">
+            {generationWarnings.length} item
+            {generationWarnings.length === 1 ? "" : "s"} need attention
+          </p>
+          <p className="mt-1 text-amber-900/90">
+            AI could not finish these items. Each entry includes the reason. You can
+            rework them below or fix them in the course builder after apply.
+          </p>
+          <ul className="mt-2 max-h-48 space-y-2 overflow-y-auto">
+            {generationWarnings.map((w) => (
+              <li
+                key={w}
+                className="rounded-lg border border-amber-200/80 bg-white/60 px-3 py-2 text-amber-950"
+              >
+                {w}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {notice && (
         <div className="rounded-lg border border-storm-light-blue/60 bg-storm-light-blue/15 px-4 py-3 text-sm text-storm-navy">
@@ -1073,12 +1145,11 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
           )}
           {generationWarnings.length > 0 && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-              <p className="font-medium">Some items were skipped</p>
-              <ul className="mt-1 list-inside list-disc text-amber-900/90">
-                {generationWarnings.map((w) => (
-                  <li key={w}>{w}</li>
-                ))}
-              </ul>
+              <p className="font-medium">
+                {generationWarnings.length} item
+                {generationWarnings.length === 1 ? "" : "s"} skipped so far — see
+                alert above for details
+              </p>
             </div>
           )}
         </div>
@@ -1086,30 +1157,6 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
 
       {step === "preview" && blueprint && (
         <div className="space-y-4">
-          {(generationWarnings.length > 0 ||
-            (blueprint.generationSkippedItems?.length ?? 0) > 0) && (
-            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-              <p className="font-medium">AI could not write some items</p>
-              <p className="mt-1 text-amber-900/90">
-                These items still have their outline only. Open them in the course builder
-                after apply, or rework them here.
-              </p>
-              <ul className="mt-2 list-inside list-disc space-y-1">
-                {(blueprint.generationSkippedItems ?? []).map((s) => (
-                  <li key={`${s.moduleIndex}-${s.itemIndex}`}>
-                    <span className="font-medium">
-                      {s.moduleTitle} → {s.title}
-                    </span>
-                    {s.reason ? (
-                      <span className="block text-xs text-amber-900/80 mt-0.5">
-                        {s.reason}
-                      </span>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
           <BlueprintPreview
             blueprint={blueprint}
             issues={previewValidation.issues}

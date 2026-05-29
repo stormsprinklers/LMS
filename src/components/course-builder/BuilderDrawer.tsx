@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useCourseBuilderUnsaved } from "./CourseBuilderUnsavedContext";
 import type { CourseBuilderCourse } from "@/lib/course-builder/types";
 import { ModuleEditor } from "./editors/ModuleEditor";
 import { LessonItemEditor } from "./editors/LessonItemEditor";
@@ -24,6 +25,7 @@ export function BuilderDrawer({
   selection: Selection;
   onClose: () => void;
 }) {
+  const { confirmNavigation } = useCourseBuilderUnsaved();
   const [itemDetail, setItemDetail] = useState<Record<string, unknown> | null>(null);
   const [loadingItem, setLoadingItem] = useState(false);
   const [fetchError, setFetchError] = useState("");
@@ -86,7 +88,12 @@ export function BuilderDrawer({
         <h3 className="font-medium text-storm-navy">
           {selection.kind === "module" ? "Edit module" : "Edit item"}
         </h3>
-        <button type="button" onClick={onClose} className="min-h-10 min-w-10 p-2" aria-label="Close">
+        <button
+          type="button"
+          onClick={() => confirmNavigation(onClose)}
+          className="min-h-10 min-w-10 p-2"
+          aria-label="Close"
+        >
           <X className="h-5 w-5" />
         </button>
       </div>

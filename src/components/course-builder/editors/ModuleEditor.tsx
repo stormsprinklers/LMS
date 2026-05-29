@@ -4,7 +4,8 @@ import { updateModule } from "@/lib/actions/course-builder";
 import type { CourseBuilderModule } from "@/lib/course-builder/types";
 import type { ContentStatus, ModuleUnlockRule } from "@prisma/client";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { useBuilderFormDirty } from "../useBuilderFormDirty";
 
 const inputClass =
   "mt-1 w-full min-h-10 rounded-lg border border-storm-light-blue/60 px-3 py-2 text-sm";
@@ -17,26 +18,34 @@ export function ModuleEditor({
   courseId: string;
 }) {
   const router = useRouter();
+  const formRef = useRef<HTMLFormElement>(null);
+  const { resolveSave, formDirtyProps } = useBuilderFormDirty(`module-${mod.id}`, formRef);
   const [busy, setBusy] = useState(false);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setBusy(true);
     const fd = new FormData(e.currentTarget);
-    await updateModule(mod.id, {
-      title: String(fd.get("title")),
-      description: String(fd.get("description") || "") || undefined,
-      estimatedMinutes: Number(fd.get("estimatedMinutes")) || undefined,
-      isRequired: fd.get("isRequired") === "on",
-      unlockRule: String(fd.get("unlockRule")) as ModuleUnlockRule,
-      status: String(fd.get("status")) as ContentStatus,
-    });
-    setBusy(false);
-    router.refresh();
+    try {
+      await updateModule(mod.id, {
+        title: String(fd.get("title")),
+        description: String(fd.get("description") || "") || undefined,
+        estimatedMinutes: Number(fd.get("estimatedMinutes")) || undefined,
+        isRequired: fd.get("isRequired") === "on",
+        unlockRule: String(fd.get("unlockRule")) as ModuleUnlockRule,
+        status: String(fd.get("status")) as ContentStatus,
+      });
+      resolveSave(true);
+      router.refresh();
+    } catch {
+      resolveSave(false);
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-3">
+    <form ref={formRef} onSubmit={handleSubmit} {...formDirtyProps} className="space-y-3">
       <label className="block text-sm">
         Title
         <input name="title" defaultValue={mod.title} required className={inputClass} />

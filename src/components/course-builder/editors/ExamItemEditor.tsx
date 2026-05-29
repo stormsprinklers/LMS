@@ -4,7 +4,8 @@ import Link from "next/link";
 import { updateCourseItem } from "@/lib/actions/course-builder";
 import { updateExam } from "@/lib/actions/exams-admin";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { useBuilderFormDirty } from "../useBuilderFormDirty";
 import type { ContentStatus } from "@prisma/client";
 
 const inputClass =
@@ -29,6 +30,8 @@ type Item = {
 
 export function ExamItemEditor({ item }: { item: Item }) {
   const router = useRouter();
+  const formRef = useRef<HTMLFormElement>(null);
+  const { resolveSave, formDirtyProps } = useBuilderFormDirty(`exam-${item.id}`, formRef);
   const [busy, setBusy] = useState(false);
   const examId = item.examId ?? item.exam?.id;
 
@@ -36,6 +39,7 @@ export function ExamItemEditor({ item }: { item: Item }) {
     e.preventDefault();
     setBusy(true);
     const fd = new FormData(e.currentTarget);
+    try {
     await updateCourseItem(item.id, {
       title: String(fd.get("title")),
       isRequired: fd.get("isRequired") === "on",
@@ -49,12 +53,17 @@ export function ExamItemEditor({ item }: { item: Item }) {
         timeLimitMinutes: Number(fd.get("timeLimitMinutes")),
       });
     }
-    setBusy(false);
+    resolveSave(true);
     router.refresh();
+    } catch {
+      resolveSave(false);
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-3">
+    <form ref={formRef} onSubmit={handleSubmit} {...formDirtyProps} className="space-y-3">
       <label className="block text-sm">
         Display title (in curriculum)
         <input name="title" defaultValue={item.title} required className={inputClass} />

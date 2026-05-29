@@ -4,7 +4,8 @@ import { updateCourseItem, updateVideoLessonContent } from "@/lib/actions/course
 import { YouTubeIframe } from "@/components/video/YouTubeIframe";
 import { isYouTubeUrl, parseYouTubeVideoId } from "@/lib/video/youtube";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { useBuilderFormDirty } from "../useBuilderFormDirty";
 import type { ContentStatus } from "@prisma/client";
 import { VideoFileUpload } from "./VideoFileUpload";
 
@@ -33,6 +34,8 @@ type Item = {
 
 export function VideoItemEditor({ item }: { item: Item }) {
   const router = useRouter();
+  const formRef = useRef<HTMLFormElement>(null);
+  const { resolveSave, formDirtyProps } = useBuilderFormDirty(`video-${item.id}`, formRef);
   const [busy, setBusy] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const savedVideoUrl = item.videoLesson?.videoUrl ?? "";
@@ -46,6 +49,7 @@ export function VideoItemEditor({ item }: { item: Item }) {
     e.preventDefault();
     setBusy(true);
     const fd = new FormData(e.currentTarget);
+    try {
     await updateCourseItem(item.id, {
       title: String(fd.get("title")),
       isRequired: fd.get("isRequired") === "on",
@@ -56,16 +60,21 @@ export function VideoItemEditor({ item }: { item: Item }) {
       videoUrl: String(fd.get("videoUrl") ?? "").trim() || null,
       muxPlaybackId: String(fd.get("muxPlaybackId") || "").trim() || null,
       transcript: String(fd.get("transcript") || "") || undefined,
-      requiredWatchPercent: Number(fd.get("requiredWatchPercent")) || 80,
+      requiredWatchPercent: Number(fd.get("requiredWatchPercent")) || 75,
       completionRule: String(fd.get("completionRule")),
       estimatedMinutes: Number(fd.get("estimatedMinutes")) || undefined,
     });
-    setBusy(false);
+    resolveSave(true);
     router.refresh();
+    } catch {
+      resolveSave(false);
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-3">
+    <form ref={formRef} onSubmit={handleSubmit} {...formDirtyProps} className="space-y-3">
       <VideoFileUpload
         courseItemId={item.id}
         playbackId={playbackId}
@@ -124,7 +133,7 @@ export function VideoItemEditor({ item }: { item: Item }) {
           type="number"
           min={1}
           max={100}
-          defaultValue={item.videoLesson?.requiredWatchPercent ?? 80}
+          defaultValue={item.videoLesson?.requiredWatchPercent ?? 75}
           className={inputClass}
         />
       </label>

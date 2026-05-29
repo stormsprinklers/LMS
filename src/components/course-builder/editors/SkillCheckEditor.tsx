@@ -2,7 +2,8 @@
 
 import { updateCourseItem, updateSkillCheck } from "@/lib/actions/course-builder";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { useBuilderFormDirty } from "../useBuilderFormDirty";
 import type { ContentStatus } from "@prisma/client";
 
 const inputClass =
@@ -27,10 +28,16 @@ type Item = {
 
 export function SkillCheckEditor({ item }: { item: Item }) {
   const router = useRouter();
+  const formRef = useRef<HTMLFormElement>(null);
+  const { markDirty, resolveSave, formDirtyProps } = useBuilderFormDirty(
+    `skill-check-${item.id}`,
+    formRef,
+  );
   const [steps, setSteps] = useState<Step[]>(item.skillCheck?.steps ?? []);
   const [busy, setBusy] = useState(false);
 
   function addStep() {
+    markDirty();
     setSteps((s) => [
       ...s,
       { id: `new-${s.length}`, text: "", isRequired: true, points: 1, sortOrder: s.length },
@@ -41,6 +48,7 @@ export function SkillCheckEditor({ item }: { item: Item }) {
     e.preventDefault();
     setBusy(true);
     const fd = new FormData(e.currentTarget);
+    try {
     await updateCourseItem(item.id, {
       title: String(fd.get("title")),
       isRequired: fd.get("isRequired") === "on",
@@ -58,12 +66,17 @@ export function SkillCheckEditor({ item }: { item: Item }) {
         points: s.points,
       })),
     });
-    setBusy(false);
+    resolveSave(true);
     router.refresh();
+    } catch {
+      resolveSave(false);
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-3">
+    <form ref={formRef} onSubmit={handleSubmit} {...formDirtyProps} className="space-y-3">
       <label className="block text-sm">
         Title
         <input name="title" defaultValue={item.title} required className={inputClass} />
@@ -93,6 +106,7 @@ export function SkillCheckEditor({ item }: { item: Item }) {
             <input
               value={step.text}
               onChange={(e) => {
+                markDirty();
                 const next = [...steps];
                 next[i] = { ...step, text: e.target.value };
                 setSteps(next);
@@ -106,6 +120,7 @@ export function SkillCheckEditor({ item }: { item: Item }) {
                   type="checkbox"
                   checked={step.isRequired}
                   onChange={(e) => {
+                    markDirty();
                     const next = [...steps];
                     next[i] = { ...step, isRequired: e.target.checked };
                     setSteps(next);
@@ -120,6 +135,7 @@ export function SkillCheckEditor({ item }: { item: Item }) {
                   min={0}
                   value={step.points}
                   onChange={(e) => {
+                    markDirty();
                     const next = [...steps];
                     next[i] = { ...step, points: Number(e.target.value) };
                     setSteps(next);

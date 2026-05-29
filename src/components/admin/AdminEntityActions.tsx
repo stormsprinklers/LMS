@@ -4,6 +4,7 @@ import {
   archiveCourse,
   restoreCourse,
   deleteCourse,
+  getCourseDeletePreviewAction,
   archiveUser,
   restoreUser,
   deleteUser,
@@ -25,8 +26,9 @@ import {
   restoreExam,
   deleteExam,
 } from "@/lib/actions/exams-admin";
+import type { CourseDeletePreview } from "@/lib/admin/course-delete";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 export type AdminEntityType =
   | "course"
@@ -69,6 +71,41 @@ export function AdminEntityActions({
   const [confirm, setConfirm] = useState<"archive" | "delete" | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [courseDeletePreview, setCourseDeletePreview] = useState<CourseDeletePreview | null>(
+    null,
+  );
+  const [courseDeletePreviewLoading, setCourseDeletePreviewLoading] = useState(false);
+  const [deleteCourseExams, setDeleteCourseExams] = useState(false);
+  const [deleteCourseLibraryMedia, setDeleteCourseLibraryMedia] = useState(false);
+
+  useEffect(() => {
+    if (type !== "course" || confirm !== "delete") {
+      setCourseDeletePreview(null);
+      setDeleteCourseExams(false);
+      setDeleteCourseLibraryMedia(false);
+      return;
+    }
+
+    let cancelled = false;
+    setCourseDeletePreviewLoading(true);
+    void getCourseDeletePreviewAction(id).then((preview) => {
+      if (cancelled) return;
+      setCourseDeletePreview(preview);
+      setCourseDeletePreviewLoading(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [type, confirm, id]);
+
+  function resetConfirm() {
+    setConfirm(null);
+    setCourseDeletePreview(null);
+    setDeleteCourseExams(false);
+    setDeleteCourseLibraryMedia(false);
+    setError("");
+  }
 
   async function runArchive() {
     setBusy(true);
@@ -97,7 +134,7 @@ export function AdminEntityActions({
           await archiveGradingAttempt(id);
           break;
       }
-      setConfirm(null);
+      resetConfirm();
       router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Action failed");
@@ -146,7 +183,10 @@ export function AdminEntityActions({
       let result: { error?: string; success?: boolean } | undefined;
       switch (type) {
         case "course":
-          result = await deleteCourse(id);
+          result = await deleteCourse(id, {
+            deleteExams: deleteCourseExams,
+            deleteLibraryMedia: deleteCourseLibraryMedia,
+          });
           break;
         case "exam":
           result = await deleteExam(id);
@@ -172,7 +212,7 @@ export function AdminEntityActions({
         setBusy(false);
         return;
       }
-      setConfirm(null);
+      resetConfirm();
       router.push(redirectAfterDelete[type]);
       router.refresh();
     } catch (e) {
@@ -199,6 +239,74 @@ export function AdminEntityActions({
             </>
           )}
         </p>
+        {confirm === "delete" && type === "course" && (
+          <div className="space-y-3 rounded-lg border border-storm-light-blue/50 bg-storm-light-grey/20 p-3">
+            {courseDeletePreviewLoading ? (
+              <p className="text-xs text-storm-navy/60">Checking linked content…</p>
+            ) : (
+              <>
+                {(courseDeletePreview?.exams.length ?? 0) > 0 && (
+                  <label className="flex cursor-pointer items-start gap-2 text-sm text-storm-navy">
+                    <input
+                      type="checkbox"
+                      className="mt-1 h-4 w-4 shrink-0"
+                      checked={deleteCourseExams}
+                      onChange={(e) => setDeleteCourseExams(e.target.checked)}
+                      disabled={busy}
+                    />
+                    <span>
+                      Also delete{" "}
+                      <strong>{courseDeletePreview!.exams.length}</strong> linked exam
+                      {courseDeletePreview!.exams.length === 1 ? "" : "s"} from the library
+                      <span className="mt-1 block text-xs text-storm-navy/60">
+                        {courseDeletePreview!.exams
+                          .slice(0, 4)
+                          .map((e) => e.title)
+                          .join(" · ")}
+                        {courseDeletePreview!.exams.length > 4
+                          ? ` · +${courseDeletePreview!.exams.length - 4} more`
+                          : ""}
+                      </span>
+                    </span>
+                  </label>
+                )}
+                {(courseDeletePreview?.libraryMedia.length ?? 0) > 0 && (
+                  <label className="flex cursor-pointer items-start gap-2 text-sm text-storm-navy">
+                    <input
+                      type="checkbox"
+                      className="mt-1 h-4 w-4 shrink-0"
+                      checked={deleteCourseLibraryMedia}
+                      onChange={(e) => setDeleteCourseLibraryMedia(e.target.checked)}
+                      disabled={busy}
+                    />
+                    <span>
+                      Also delete{" "}
+                      <strong>{courseDeletePreview!.libraryMedia.length}</strong> photo/video
+                      {courseDeletePreview!.libraryMedia.length === 1 ? "" : "s"} synced from this
+                      course
+                      <span className="mt-1 block text-xs text-storm-navy/60">
+                        {courseDeletePreview!.libraryMedia
+                          .slice(0, 4)
+                          .map((a) => a.title)
+                          .join(" · ")}
+                        {courseDeletePreview!.libraryMedia.length > 4
+                          ? ` · +${courseDeletePreview!.libraryMedia.length - 4} more`
+                          : ""}
+                      </span>
+                    </span>
+                  </label>
+                )}
+                {!courseDeletePreviewLoading &&
+                  (courseDeletePreview?.exams.length ?? 0) === 0 &&
+                  (courseDeletePreview?.libraryMedia.length ?? 0) === 0 && (
+                    <p className="text-xs text-storm-navy/60">
+                      No linked exams or library photos/videos were found for this course.
+                    </p>
+                  )}
+              </>
+            )}
+          </div>
+        )}
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
@@ -214,7 +322,7 @@ export function AdminEntityActions({
           </button>
           <button
             type="button"
-            onClick={() => setConfirm(null)}
+            onClick={resetConfirm}
             className={`${btn} border-storm-light-blue/60 text-storm-navy`}
           >
             Cancel

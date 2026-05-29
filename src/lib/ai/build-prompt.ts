@@ -6,6 +6,11 @@ import {
   getCourseStructureGuidance,
 } from "./allowed-item-types";
 import { LESSON_HTML_AUTHORING_GUIDE } from "./lesson-html";
+import { examQuestionCountPrompt } from "./exam-question-counts";
+import {
+  buildMediaInstructionsForItem,
+  MEDIA_USAGE_GUIDE,
+} from "./media-asset-usage";
 
 const MAX_CHARS_PER_ASSET = 12_000;
 const MAX_TOTAL_CONTEXT = 80_000;
@@ -51,6 +56,9 @@ export function buildGenerationMessages(options: {
     assets,
     allowedItemTypes,
   } = options;
+  const hasVideoResource = assets.some(
+    (a) => a.kind === "video" && a.includeRecording !== false,
+  );
 
   const assetBlocks: string[] = [];
   let total = 0;
@@ -96,6 +104,8 @@ Do NOT include sourceAssets[] in the JSON (uploads are tracked server-side).
 Reference uploads only via video.sourceAssetRef or mediaPlacements with assetRef, moduleIndex (0-based), and position (intro|after_section|inline|item_end).
 Prefer practical, safety-aware training content.
 ${LESSON_HTML_AUTHORING_GUIDE}
+${MEDIA_USAGE_GUIDE}
+${hasVideoResource ? "" : "There is no usable uploaded video resource in this session. Do NOT add VIDEO items to the structure."}
 ${structureGuidance}`;
 
   const user = [
@@ -131,6 +141,9 @@ export function buildStructureGenerationMessages(options: {
     assets,
     allowedItemTypes,
   } = options;
+  const hasVideoResource = assets.some(
+    (a) => a.kind === "video" && a.includeRecording !== false,
+  );
 
   const base = buildGenerationMessages({
     mode,
@@ -157,7 +170,9 @@ Output ONLY valid JSON for the course STRUCTURE (phase 1). Version "1.0".
 ${structureGuidance}
 ${allowedBlock}
 Do NOT include lesson.bodyHtml, exam.questions, video transcripts, or other full content.
-Do NOT include sourceAssets[] in JSON — reference uploads only via linkedSourceAssetRefs (exact asset id strings from source materials).`;
+${hasVideoResource ? "" : "No usable uploaded video resource exists. Never add VIDEO items."}
+Do NOT include sourceAssets[] in JSON — reference uploads only via linkedSourceAssetRefs (exact asset id strings from source materials).
+Each image or video upload must appear in linkedSourceAssetRefs for at most ONE item in the whole course. Spread photos across different LESSON or VIDEO items; never assign the same id to multiple items.`;
 
   const user = [
     `Course: ${courseTitle}`,
@@ -178,12 +193,13 @@ Do NOT include sourceAssets[] in JSON — reference uploads only via linkedSourc
 function contentInstructionsForType(type: BlueprintItemType): string {
   switch (type) {
     case "LESSON":
-      return `LESSON: ${LESSON_HTML_AUTHORING_GUIDE} Place <storm-media> markers next to the paragraph that references each source.`;
+      return `LESSON: ${LESSON_HTML_AUTHORING_GUIDE} Use at most one <storm-media> marker only if this item is assigned a media asset.`;
     case "VIDEO":
-      return "VIDEO: sourceAssetRef and/or youtubeUrl, transcript summary if no recording.";
+      return "VIDEO: sourceAssetRef and/or youtubeUrl, transcript summary if no recording. Use only the upload assigned to this item.";
     case "QUIZ":
+      return `${examQuestionCountPrompt("QUIZ")} Every MC/MS/TRUE_FALSE question needs options with isCorrect true on at least one option (exactly one for MC/TRUE_FALSE).`;
     case "EXAM":
-      return "EXAM/QUIZ: at least 3 questions; every MC/MS/TRUE_FALSE question needs options with isCorrect true on at least one option.";
+      return `${examQuestionCountPrompt("EXAM")} Every MC/MS/TRUE_FALSE question needs options with isCorrect true on at least one option.`;
     case "SCENARIO":
       return "SCENARIO: detailed prompt and backgroundInfo.";
     case "SKILL_CHECK":
@@ -199,8 +215,17 @@ export function buildItemContentUserMessage(options: {
   itemIndex: number;
   assets: AiSourceAsset[];
   allowedItemTypes: BlueprintItemType[];
+  usedMediaAssetIds?: Set<string>;
+  assignedMediaAssetId?: string | null;
 }) {
-  const { blueprint, moduleIndex, itemIndex, assets } = options;
+  const {
+    blueprint,
+    moduleIndex,
+    itemIndex,
+    assets,
+    usedMediaAssetIds = new Set(),
+    assignedMediaAssetId = null,
+  } = options;
   const mod = blueprint.modules[moduleIndex];
   const item = mod?.items[itemIndex];
   if (!item) return "";
@@ -216,6 +241,16 @@ export function buildItemContentUserMessage(options: {
 
   const allAssetIds = assets.map((a) => a.id).join(", ");
 
+  const mediaBlock =
+    item.type === "LESSON" || item.type === "VIDEO" ?
+      buildMediaInstructionsForItem({
+        item,
+        assets,
+        usedMediaAssetIds,
+        assignedMediaAssetId,
+      })
+    : "";
+
   return [
     `Generate full content for this curriculum item only.`,
     `Module ${moduleIndex + 1}: ${mod.title}`,
@@ -223,9 +258,7 @@ export function buildItemContentUserMessage(options: {
     allAssetIds
       ? `Valid sourceAssetRef ids (use exactly one of these for VIDEO): ${allAssetIds}`
       : "",
-    linked.length
-      ? `Prefer linkedSourceAssetRefs for this item: ${linked.join(", ")}`
-      : "",
+    mediaBlock,
     assetNotes ? `Linked source excerpts:\n${assetNotes}` : "",
     `Return JSON: { "item": { ...complete item with ${item.type} content filled in... } }`,
     `Keep type, title, outline, track, and linkedSourceAssetRefs unless you must adjust them.`,

@@ -9,15 +9,31 @@ import { prisma } from "@/lib/db";
 
 export const metadata = { title: "Notifications" };
 
-export default async function NotificationsPage() {
+export default async function NotificationsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ show?: string }>;
+}) {
   const session = await requireUser();
-  const notifications = await prisma.notification.findMany({
-    where: { userId: session.user.id },
+  const params = await searchParams;
+  const showPrevious = params.show === "previous";
+
+  const unreadNotifications = await prisma.notification.findMany({
+    where: { userId: session.user.id, readAt: null },
     orderBy: { createdAt: "desc" },
     take: 50,
   });
+  const previousNotifications = await prisma.notification.findMany({
+    where: { userId: session.user.id, readAt: { not: null } },
+    orderBy: { createdAt: "desc" },
+    take: 10,
+  });
 
-  const unreadCount = notifications.filter((n) => !n.readAt).length;
+  const notifications = showPrevious
+    ? [...unreadNotifications, ...previousNotifications]
+    : unreadNotifications;
+  const unreadCount = unreadNotifications.length;
+  const hasPrevious = previousNotifications.length > 0;
 
   return (
     <>
@@ -26,6 +42,24 @@ export default async function NotificationsPage() {
         description="Grading requests and grade updates."
         action={unreadCount > 0 ? <MarkAllReadButton /> : undefined}
       />
+      <div className="mb-3 flex items-center gap-3 text-sm">
+        {!showPrevious && hasPrevious && (
+          <Link
+            href="/notifications?show=previous"
+            className="text-storm-medium-blue no-underline hover:underline"
+          >
+            Show previous notifications (10)
+          </Link>
+        )}
+        {showPrevious && (
+          <Link
+            href="/notifications"
+            className="text-storm-medium-blue no-underline hover:underline"
+          >
+            Hide previous notifications
+          </Link>
+        )}
+      </div>
       <ul className="space-y-3">
         {notifications.map((n) => (
           <li
@@ -55,7 +89,7 @@ export default async function NotificationsPage() {
           </li>
         ))}
         {notifications.length === 0 && (
-          <p className="text-sm text-storm-navy/60">No notifications yet.</p>
+          <p className="text-sm text-storm-navy/60">No unread notifications.</p>
         )}
       </ul>
     </>

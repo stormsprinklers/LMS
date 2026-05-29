@@ -210,6 +210,19 @@ export async function saveAttemptGrades(
       data: { status: "COMPLETED", completedAt: now },
     });
 
+    await tx.notification.updateMany({
+      where: {
+        userId: graderId,
+        type: "FREE_RESPONSE_TO_GRADE",
+        readAt: null,
+        OR: [
+          { link: `/admin/grading/${attemptId}` },
+          { metadata: { path: ["attemptId"], equals: attemptId } },
+        ],
+      },
+      data: { readAt: now },
+    });
+
     const answers = await tx.examAnswer.findMany({ where: { attemptId } });
     const { score, passed } = await finalizeAttemptScore(attempt.exam, answers);
 

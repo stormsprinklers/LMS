@@ -1,5 +1,9 @@
 import { prisma } from "@/lib/db";
 import type { LessonProgressStatus } from "@prisma/client";
+import {
+  DEFAULT_REQUIRED_WATCH_PERCENT,
+  hasMetWatchRequirement,
+} from "@/lib/courses/video-watch";
 
 export type ItemAccessState = "locked" | "available" | "in_progress" | "completed";
 
@@ -93,9 +97,13 @@ export async function updateVideoItemProgress(
     item.videoLesson?.durationSeconds ??
     item.legacyLesson?.videoAsset?.durationSeconds ??
     (durationMinutes ? durationMinutes * 60 : 0);
-  const requiredPct = item.videoLesson?.requiredWatchPercent ?? 80;
-  const threshold = durationSec > 0 ? (durationSec * requiredPct) / 100 : 0;
-  const completed = watchedSeconds >= threshold && threshold > 0;
+  const requiredPct =
+    item.videoLesson?.requiredWatchPercent ?? DEFAULT_REQUIRED_WATCH_PERCENT;
+  const completed = hasMetWatchRequirement(
+    watchedSeconds,
+    durationSec,
+    requiredPct,
+  );
 
   await prisma.courseItemProgress.upsert({
     where: { userId_courseItemId: { userId, courseItemId } },

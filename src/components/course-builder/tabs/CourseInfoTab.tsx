@@ -4,14 +4,17 @@ import { updateCourseInfo } from "@/lib/actions/course-builder";
 import type { CourseBuilderCourse } from "@/lib/course-builder/types";
 import type { CourseDifficulty } from "@prisma/client";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { SaveStateBadge } from "../SaveStateBadge";
+import { useBuilderFormDirty } from "../useBuilderFormDirty";
 
 const inputClass =
   "mt-1 w-full min-h-11 rounded-lg border border-storm-light-blue/60 px-3 py-2 text-sm";
 
 export function CourseInfoTab({ course }: { course: CourseBuilderCourse }) {
   const router = useRouter();
+  const formRef = useRef<HTMLFormElement>(null);
+  const { resolveSave, formDirtyProps } = useBuilderFormDirty(`course-info-${course.id}`, formRef);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [error, setError] = useState("");
 
@@ -25,7 +28,7 @@ export function CourseInfoTab({ course }: { course: CourseBuilderCourse }) {
       .map((t) => t.trim())
       .filter(Boolean);
     try {
-      const result = await updateCourseInfo(course.id, {
+      await updateCourseInfo(course.id, {
         title: String(fd.get("title")),
         slug: String(fd.get("slug")),
         shortDescription: String(fd.get("shortDescription") || ""),
@@ -38,15 +41,22 @@ export function CourseInfoTab({ course }: { course: CourseBuilderCourse }) {
         internalNotes: String(fd.get("internalNotes") || "") || undefined,
       });
       setSaveState("saved");
+      resolveSave(true);
       router.refresh();
     } catch {
       setError("Failed to save");
       setSaveState("error");
+      resolveSave(false);
     }
   }
 
   return (
-    <form onSubmit={handleSubmit} className="max-w-2xl space-y-4 rounded-xl border bg-white p-4 sm:p-6">
+    <form
+      ref={formRef}
+      onSubmit={handleSubmit}
+      {...formDirtyProps}
+      className="max-w-2xl space-y-4 rounded-xl border bg-white p-4 sm:p-6"
+    >
       <div className="flex items-center justify-between">
         <h2 className="font-medium text-storm-navy">Course details</h2>
         <SaveStateBadge state={saveState} />

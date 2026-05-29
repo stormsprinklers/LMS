@@ -2,6 +2,10 @@
 
 import { prisma } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth-utils";
+import {
+  getCourseDeletePreview,
+  getCourseDeleteRelatedIds,
+} from "@/lib/admin/course-delete";
 import { revalidatePath } from "next/cache";
 
 function revalidateAdmin() {
@@ -11,6 +15,7 @@ function revalidateAdmin() {
   revalidatePath("/admin/users");
   revalidatePath("/admin/certifications");
   revalidatePath("/admin/media");
+  revalidatePath("/library");
   revalidatePath("/admin/grades");
   revalidatePath("/admin/grading");
   revalidatePath("/admin/archived");
@@ -37,10 +42,41 @@ export async function restoreCourse(courseId: string) {
   revalidateAdmin();
 }
 
-export async function deleteCourse(courseId: string) {
+export async function getCourseDeletePreviewAction(courseId: string) {
   await requireAdmin();
-  await prisma.course.delete({ where: { id: courseId } });
+  return getCourseDeletePreview(courseId);
+}
+
+export async function deleteCourse(
+  courseId: string,
+  options?: { deleteExams?: boolean; deleteLibraryMedia?: boolean },
+) {
+  await requireAdmin();
+
+  const course = await prisma.course.findUnique({
+    where: { id: courseId },
+    select: { id: true },
+  });
+  if (!course) return { error: "Course not found." };
+
+  const { examIds, libraryMediaIds } = await getCourseDeleteRelatedIds(courseId);
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      if (options?.deleteExams && examIds.length > 0) {
+        await tx.exam.deleteMany({ where: { id: { in: examIds } } });
+      }
+      if (options?.deleteLibraryMedia && libraryMediaIds.length > 0) {
+        await tx.libraryAsset.deleteMany({ where: { id: { in: libraryMediaIds } } });
+      }
+      await tx.course.delete({ where: { id: courseId } });
+    });
+  } catch {
+    return { error: "Could not delete this course. Try archiving it instead." };
+  }
+
   revalidateAdmin();
+  revalidatePath("/library");
   return { success: true as const };
 }
 

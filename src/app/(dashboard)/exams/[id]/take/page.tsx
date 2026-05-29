@@ -16,6 +16,8 @@ import {
   hasSavedExamAnswers,
   parseSavedExamAnswers,
 } from "@/lib/exams/saved-answers";
+import { getCourseItemNavigationByExamId } from "@/lib/courses/item-navigation";
+import { CourseExamTakeNav } from "@/components/courses/CourseExamTakeNav";
 
 export default async function ExamTakePage({
   params,
@@ -78,6 +80,12 @@ export default async function ExamTakePage({
   const savedAnswers = parseSavedExamAnswers(attempt.answers);
   const restoredProgress = hasSavedExamAnswers(savedAnswers);
 
+  const courseNav = await getCourseItemNavigationByExamId(
+    id,
+    session.user.id,
+    false,
+  );
+
   if (ordered.length === 0) {
     return (
       <>
@@ -132,6 +140,7 @@ export default async function ExamTakePage({
         })}
         timeLimitMinutes={exam.timeLimitMinutes}
       />
+      {courseNav && <CourseExamTakeNav navigation={courseNav} />}
     </>
   );
 }

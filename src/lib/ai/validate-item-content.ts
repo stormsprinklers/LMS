@@ -7,7 +7,14 @@ import { tiptapDocFromHtml } from "./tiptap-from-html";
 import {
   lessonHtmlUsesStormMedia,
   normalizeLessonBodyHtml,
+  validateLessonHtmlStructure,
 } from "./lesson-html";
+import {
+  extractStormMediaAssetIds,
+} from "./media-asset-usage";
+import {
+  validateAssessmentQuestionCount,
+} from "./exam-question-counts";
 import { isYouTubeUrl } from "@/lib/video/youtube";
 
 import type { ItemContentValidationContext } from "./repair-item-content";
@@ -33,6 +40,12 @@ function validateExamQuestions(item: BlueprintItem, issues: string[]): void {
   if (!exam?.questions?.length) {
     issues.push("exam.questions: Include at least one question.");
     return;
+  }
+
+  if (item.type === "QUIZ" || item.type === "EXAM") {
+    issues.push(
+      ...validateAssessmentQuestionCount(item.type, exam.questions.length),
+    );
   }
 
   exam.questions.forEach((q, qi) => {
@@ -88,15 +101,40 @@ function validateLessonContent(
     issues.push("lesson.bodyHtml: Do not include script tags.");
   }
 
+  issues.push(...validateLessonHtmlStructure(html));
+
   if (lessonHtmlUsesStormMedia(html) && ctx?.assetIds) {
-    const refs = html.matchAll(/asset-id\s*=\s*["']([^"']+)["']/gi);
-    for (const m of refs) {
-      const id = m[1];
+    const refs = extractStormMediaAssetIds(html);
+    const assigned = new Set(ctx.assignedMediaAssetIds ?? []);
+
+    if (refs.length > 1) {
+      issues.push(
+        "lesson.bodyHtml: At most one <storm-media> marker per lesson.",
+      );
+    }
+
+    for (const id of refs) {
       if (!ctx.assetIds.has(id)) {
         issues.push(
           `lesson.bodyHtml: storm-media references unknown asset id "${id}".`,
         );
       }
+      if (ctx.usedMediaAssetIds?.has(id)) {
+        issues.push(
+          `lesson.bodyHtml: asset "${id}" was already used in another course item; each photo/video may appear only once per course.`,
+        );
+      }
+      if (assigned.size > 0 && !assigned.has(id)) {
+        issues.push(
+          `lesson.bodyHtml: asset "${id}" is not assigned to this lesson; use only ${[...assigned].join(", ")} or omit media.`,
+        );
+      }
+    }
+
+    if (assigned.size === 0 && refs.length > 0) {
+      issues.push(
+        "lesson.bodyHtml: No media assigned to this lesson; remove <storm-media> markers.",
+      );
     }
   }
 
@@ -135,6 +173,23 @@ function validateVideoContent(
   if (sourceAssetRef && ctx?.assetIds && !ctx.assetIds.has(sourceAssetRef)) {
     issues.push(
       `video.sourceAssetRef: Unknown asset id "${sourceAssetRef}". Use a linked upload id from the session.`,
+    );
+  }
+
+  if (sourceAssetRef && ctx?.usedMediaAssetIds?.has(sourceAssetRef)) {
+    issues.push(
+      `video.sourceAssetRef: Asset "${sourceAssetRef}" was already used in another course item; each upload may appear only once.`,
+    );
+  }
+
+  const assigned = ctx?.assignedMediaAssetIds?.[0];
+  if (
+    assigned &&
+    sourceAssetRef &&
+    sourceAssetRef !== assigned
+  ) {
+    issues.push(
+      `video.sourceAssetRef: Use assigned asset "${assigned}" for this video item.`,
     );
   }
 }

@@ -57,8 +57,12 @@ const examQuestionsJsonSchema = {
   },
 } as const;
 
-const MAX_COUNT = 25;
+const MAX_COUNT = 50;
 const MIN_COUNT = 1;
+
+function maxTokensForCount(count: number): number {
+  return Math.min(32_000, Math.max(4000, 800 + count * 320));
+}
 
 function clampCount(count: number): number {
   if (!Number.isFinite(count)) return 5;
@@ -97,6 +101,7 @@ function buildUserMessage(params: GenerateExamQuestionsParams): string {
 
 async function requestQuestions(
   userMessage: string,
+  count: number,
   retryIssues?: string[],
 ): Promise<{ questions: RepairedExamQuestion[] } | { error: string }> {
   const openai = requireOpenAI();
@@ -124,7 +129,7 @@ Rules:
   const completion = await openai.chat.completions.create({
     model: AI_SUMMARY_MODEL,
     messages,
-    max_tokens: 8000,
+    max_tokens: maxTokensForCount(clampCount(count)),
     response_format: {
       type: "json_schema",
       json_schema: {
@@ -176,11 +181,12 @@ export async function generateExamQuestions(
   }
 
   const userMessage = buildUserMessage(params);
+  const count = clampCount(params.count);
 
   try {
-    let result = await requestQuestions(userMessage);
+    let result = await requestQuestions(userMessage, count);
     if ("error" in result) {
-      const retry = await requestQuestions(userMessage, [result.error]);
+      const retry = await requestQuestions(userMessage, count, [result.error]);
       if ("error" in retry) {
         return { ok: false, error: retry.error };
       }
