@@ -34,7 +34,7 @@ export async function POST(request: Request) {
   }
 
   const items = body.items ?? [];
-  const scope = body.scope ?? "personal";
+  const scope = body.scope ?? "shared";
   const role = (session.user as { role?: string }).role;
 
   const result = await createLibraryAssetsBatchImpl(

@@ -67,7 +67,7 @@ export const LIBRARY_UPLOAD_TYPES: {
   {
     id: "link",
     label: "Web link",
-    description: "A single web page or article URL",
+    description: "Articles and web pages (not YouTube)",
   },
   {
     id: "text",
@@ -85,12 +85,31 @@ export function folderForKind(kind: string): LibraryFolderId {
   return folder?.id ?? "documents";
 }
 
+export function assetFolder(
+  asset: Pick<LibraryAssetListItem, "kind" | "blobUrl">,
+): LibraryFolderId {
+  if (asset.blobUrl && parseYouTubeVideoId(asset.blobUrl)) return "videos";
+  return folderForKind(asset.kind);
+}
+
 export function assetInFolder(
-  asset: Pick<LibraryAssetListItem, "kind">,
+  asset: Pick<LibraryAssetListItem, "kind" | "blobUrl">,
   folderId: LibraryFolderId,
 ): boolean {
-  const folder = LIBRARY_FOLDERS.find((f) => f.id === folderId);
-  return folder ? (folder.kinds as string[]).includes(asset.kind) : false;
+  return assetFolder(asset) === folderId;
+}
+
+export function folderUploadType(
+  folderId: LibraryFolderId,
+): LibraryUploadType {
+  const map: Record<LibraryFolderId, LibraryUploadType> = {
+    documents: "document",
+    images: "image",
+    videos: "video",
+    audio: "audio",
+    links: "link",
+  };
+  return map[folderId];
 }
 
 export function formatFileSize(bytes: number | null | undefined): string {
@@ -133,4 +152,28 @@ export function assetPreviewThumbnail(
 export function titleFromFilename(filename: string): string {
   const base = filename.replace(/\.[^.]+$/, "").trim();
   return base || filename;
+}
+
+export function uniquifyTitles(titles: string[]): string[] {
+  const seen = new Map<string, number>();
+  return titles.map((title) => {
+    const lower = title.toLowerCase();
+    const count = seen.get(lower) ?? 0;
+    seen.set(lower, count + 1);
+    if (count === 0) return title;
+    return `${title} (${count + 1})`;
+  });
+}
+
+export function validateUniqueDescriptions(descriptions: string[]): string | null {
+  const normalized = descriptions.map((d) => d.trim().toLowerCase());
+  const seen = new Set<string>();
+  for (const d of normalized) {
+    if (!d) return "Each item needs a description for AI course placement.";
+    if (seen.has(d)) {
+      return "Each item needs a unique description so AI can tell them apart.";
+    }
+    seen.add(d);
+  }
+  return null;
 }

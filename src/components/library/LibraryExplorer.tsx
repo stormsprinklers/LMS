@@ -9,8 +9,11 @@ import {
 import { fetchLibraryAssets } from "@/lib/library/client";
 import {
   LIBRARY_FOLDERS,
+  assetFolder,
   assetInFolder,
+  folderUploadType,
   type LibraryFolderId,
+  type LibraryUploadType,
 } from "@/lib/library/folders";
 import {
   LibraryAssetTile,
@@ -56,6 +59,7 @@ export function LibraryExplorer({
     null,
   );
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [uploadPreset, setUploadPreset] = useState<LibraryUploadType | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -94,12 +98,7 @@ export function LibraryExplorer({
       links: 0,
     };
     for (const a of scopedAssets) {
-      for (const f of LIBRARY_FOLDERS) {
-        if ((f.kinds as string[]).includes(a.kind)) {
-          counts[f.id]++;
-          break;
-        }
-      }
+      counts[assetFolder(a)]++;
     }
     return counts;
   }, [scopedAssets]);
@@ -108,6 +107,11 @@ export function LibraryExplorer({
     if (!currentFolder) return [];
     return scopedAssets.filter((a) => assetInFolder(a, currentFolder));
   }, [scopedAssets, currentFolder]);
+
+  function openUpload() {
+    setUploadPreset(currentFolder ? folderUploadType(currentFolder) : null);
+    setUploadOpen(true);
+  }
 
   const currentFolderLabel =
     LIBRARY_FOLDERS.find((f) => f.id === currentFolder)?.label ?? "Library";
@@ -155,7 +159,7 @@ export function LibraryExplorer({
           ))}
           <button
             type="button"
-            onClick={() => setUploadOpen(true)}
+            onClick={openUpload}
             className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-storm-medium-blue px-4 text-sm font-semibold text-white"
           >
             <Plus className="h-4 w-4" />
@@ -234,7 +238,7 @@ export function LibraryExplorer({
               </p>
               <button
                 type="button"
-                onClick={() => setUploadOpen(true)}
+                onClick={openUpload}
                 className="mt-4 text-sm font-medium text-storm-medium-blue hover:underline"
               >
                 + Upload
@@ -256,7 +260,11 @@ export function LibraryExplorer({
 
       <LibraryUploadModal
         open={uploadOpen}
-        onClose={() => setUploadOpen(false)}
+        onClose={() => {
+          setUploadOpen(false);
+          setUploadPreset(null);
+        }}
+        initialUploadType={uploadPreset}
         canPublishShared={canPublishShared}
         onComplete={async () => {
           setMessage("Upload complete. Processing may take a minute for PDFs and videos.");

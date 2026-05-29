@@ -182,7 +182,7 @@ model LibraryAsset {
   id                String                  @id @default(cuid())
   title             String
   description       String                  @db.Text
-  scope             LibraryAssetScope       @default(personal)
+  scope             LibraryAssetScope       @default(shared)
   createdById       String
   kind              AiSourceAssetKind
   filename          String?

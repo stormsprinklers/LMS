@@ -6,10 +6,11 @@ import type { LibraryAssetScope } from "@prisma/client";
 import { kindFromMime, isHttpUrl } from "@/lib/media/asset-utils";
 import { processLibraryAsset } from "@/lib/library/process-library-asset";
 import { isYouTubeUrl } from "@/lib/video/youtube";
-import { MAX_LIBRARY_BATCH_UPLOAD } from "@/lib/library/folders";
+import { MAX_LIBRARY_BATCH_UPLOAD, uniquifyTitles, validateUniqueDescriptions } from "@/lib/library/folders";
+import { resolveLibraryTitle } from "@/lib/library/resolve-title";
 
 export type LibraryCreateInput = {
-  title: string;
+  title?: string;
   description: string;
   scope: LibraryAssetScope;
   pastedText?: string;
@@ -28,8 +29,13 @@ type CreateContext = {
 };
 
 function formatError(e: unknown): string {
-  if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2021") {
-    return "Library tables are missing. Run npm run db:migrate:deploy with your production DATABASE_URL.";
+  if (e instanceof Prisma.PrismaClientKnownRequestError) {
+    if (e.code === "P2021") {
+      return "Library tables are missing. Run npm run db:migrate:deploy with your production DATABASE_URL.";
+    }
+    if (e.code === "P2022") {
+      return "Library database is out of date (missing columns). Run npm run db:migrate:deploy with your production DATABASE_URL.";
+    }
   }
   return e instanceof Error ? e.message : "Something went wrong.";
 }
@@ -37,10 +43,10 @@ function formatError(e: unknown): string {
 async function createOneLibraryAsset(
   input: LibraryCreateInput,
   ctx: CreateContext,
+  resolvedTitle: string,
 ): Promise<{ id: string } | { error: string }> {
-  const title = input.title.trim();
+  const title = resolvedTitle;
   const description = input.description.trim();
-  if (!title) return { error: "Title is required." };
   if (!description) return { error: "Description is required." };
 
   const includeRecording = input.includeRecording !== false;
@@ -68,7 +74,12 @@ async function createOneLibraryAsset(
 
   if (sourceUrl) {
     if (!isHttpUrl(sourceUrl)) return { error: "Enter a valid http(s) URL." };
-    const asVideo = urlKind === "video" || isYouTubeUrl(sourceUrl);
+    if (isYouTubeUrl(sourceUrl) && urlKind !== "video") {
+      return {
+        error: 'YouTube links belong under Video. Use the Video upload type.',
+      };
+    }
+    const asVideo = urlKind === "video";
     const asset = await prisma.libraryAsset.create({
       data: {
         title,
@@ -137,7 +148,7 @@ export async function createLibraryAssetsBatchImpl(
   userId: string,
   role: string | undefined,
   items: LibraryCreateInput[],
-  scopeRaw: LibraryAssetScope = "personal",
+  scopeRaw: LibraryAssetScope = "shared",
 ): Promise<{ created?: number; error?: string; errors?: string[] }> {
   try {
     if (!items.length) return { error: "Nothing to upload." };
@@ -148,14 +159,27 @@ export async function createLibraryAssetsBatchImpl(
     const scope: LibraryAssetScope =
       scopeRaw === "shared" && isStaff(role) ? "shared" : "personal";
 
+    const descriptionError = validateUniqueDescriptions(
+      items.map((item) => item.description),
+    );
+    if (descriptionError) return { error: descriptionError };
+
+    const resolvedTitles = await Promise.all(items.map((item) => resolveLibraryTitle(item)));
+    const titles = uniquifyTitles(resolvedTitles);
+
     const ctx: CreateContext = { userId, scope };
     const errors: string[] = [];
     let created = 0;
 
-    for (const item of items) {
-      const result = await createOneLibraryAsset({ ...item, scope }, ctx);
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      const result = await createOneLibraryAsset(
+        { ...item, scope },
+        ctx,
+        titles[i],
+      );
       if ("error" in result) {
-        errors.push(`${item.title}: ${result.error}`);
+        errors.push(`${titles[i]}: ${result.error}`);
       } else {
         created++;
       }

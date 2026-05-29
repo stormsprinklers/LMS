@@ -37,7 +37,7 @@ export async function listLibraryAssetsForPicker() {
 
 export async function createLibraryAssetsBatch(
   items: LibraryCreateInput[],
-  scopeRaw: LibraryAssetScope = "personal",
+  scopeRaw: LibraryAssetScope = "shared",
 ) {
   try {
     const session = await requireUser();
@@ -52,7 +52,7 @@ export async function uploadLibraryAsset(formData: FormData) {
   try {
     const session = await requireUser();
     const role = (session.user as { role?: string }).role;
-    const scopeRaw = String(formData.get("scope") ?? "personal") as LibraryAssetScope;
+    const scopeRaw = String(formData.get("scope") ?? "shared") as LibraryAssetScope;
 
     const file = formData.get("file");
     if (file instanceof File && file.size > 0 && !formData.get("blobUrl")) {

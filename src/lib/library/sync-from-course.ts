@@ -13,7 +13,8 @@ import { isYouTubeUrl } from "@/lib/video/youtube";
 const BLOB_HOST_RE = /(^|\.)blob\.vercel-storage\.com$/i;
 
 function libraryScope(role: string | undefined): LibraryAssetScope {
-  return isStaff(role) ? "shared" : "personal";
+  if (role && !isStaff(role)) return "personal";
+  return "shared";
 }
 
 function courseDescription(courseTitle: string, itemTitle: string): string {

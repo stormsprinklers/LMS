@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { upload } from "@vercel/blob/client";
 import type { LibraryAssetScope } from "@prisma/client";
 import {
   LIBRARY_UPLOAD_TYPES,
   MAX_LIBRARY_BATCH_UPLOAD,
   titleFromFilename,
+  uniquifyTitles,
+  validateUniqueDescriptions,
   type LibraryUploadType,
 } from "@/lib/library/folders";
 import { saveLibraryAssetsBatch } from "@/lib/library/client";
@@ -35,16 +37,29 @@ const TYPE_ICONS: Record<LibraryUploadType, React.ReactNode> = {
   text: <FileText className="h-6 w-6" />,
 };
 
+type FileEntry = {
+  key: string;
+  file: File;
+  title: string;
+  description: string;
+};
+
+function fileKey(file: File): string {
+  return `${file.name}-${file.size}-${file.lastModified}`;
+}
+
 export function LibraryUploadModal({
   open,
   onClose,
   canPublishShared,
   onComplete,
+  initialUploadType = null,
 }: {
   open: boolean;
   onClose: () => void;
   canPublishShared: boolean;
   onComplete: () => void;
+  initialUploadType?: LibraryUploadType | null;
 }) {
   const [step, setStep] = useState<"type" | "form">("type");
   const [uploadType, setUploadType] = useState<LibraryUploadType | null>(null);
@@ -53,38 +68,70 @@ export function LibraryUploadModal({
   const [progress, setProgress] = useState("");
 
   const [description, setDescription] = useState("");
-  const [scope, setScope] = useState<LibraryAssetScope>("personal");
+  const [scope, setScope] = useState<LibraryAssetScope>("shared");
   const [title, setTitle] = useState("");
   const [files, setFiles] = useState<File[]>([]);
+  const [fileEntries, setFileEntries] = useState<FileEntry[]>([]);
   const [sourceUrl, setSourceUrl] = useState("");
-  const [urlKind, setUrlKind] = useState<"webpage" | "video">("webpage");
   const [pasteText, setPasteText] = useState("");
   const [includeRecording, setIncludeRecording] = useState(true);
   const [videoMode, setVideoMode] = useState<"files" | "link">("files");
 
   useEffect(() => {
     if (!open) return;
-    setStep("type");
-    setUploadType(null);
     setError("");
     setProgress("");
     setDescription("");
-    setScope("personal");
+    setScope(canPublishShared ? "shared" : "personal");
     setTitle("");
     setFiles([]);
+    setFileEntries([]);
     setSourceUrl("");
-    setUrlKind("webpage");
     setPasteText("");
     setIncludeRecording(true);
-    setVideoMode("files");
-  }, [open]);
 
-  if (!open) return null;
+    if (initialUploadType) {
+      setUploadType(initialUploadType);
+      setStep("form");
+      setVideoMode(initialUploadType === "video" ? "link" : "files");
+    } else {
+      setStep("type");
+      setUploadType(null);
+      setVideoMode("files");
+    }
+  }, [open, canPublishShared, initialUploadType]);
+
+  useEffect(() => {
+    setFileEntries((prev) => {
+      const prevByKey = new Map(prev.map((entry) => [entry.key, entry]));
+      return files.map((file) => {
+        const key = fileKey(file);
+        const existing = prevByKey.get(key);
+        if (existing) return { ...existing, file };
+        return {
+          key,
+          file,
+          title: titleFromFilename(file.name),
+          description: "",
+        };
+      });
+    });
+  }, [files]);
 
   const typeConfig = LIBRARY_UPLOAD_TYPES.find((t) => t.id === uploadType);
   const isMultiFile =
     typeConfig?.multiple &&
     !(uploadType === "video" && videoMode === "link");
+  const usesPerFileMetadata = isMultiFile && files.length > 0;
+
+  const resolvedPreviewTitles = useMemo(() => {
+    if (!usesPerFileMetadata) return [];
+    return uniquifyTitles(
+      fileEntries.map((entry) => entry.title.trim() || titleFromFilename(entry.file.name)),
+    );
+  }, [fileEntries, usesPerFileMetadata]);
+
+  if (!open) return null;
 
   function close() {
     if (busy) return;
@@ -94,16 +141,12 @@ export function LibraryUploadModal({
   function pickType(id: LibraryUploadType) {
     setUploadType(id);
     setStep("form");
-    if (id === "video") setVideoMode("files");
+    setVideoMode(id === "video" ? "link" : "files");
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!uploadType) return;
-    if (!description.trim()) {
-      setError("Description is required.");
-      return;
-    }
 
     setBusy(true);
     setError("");
@@ -113,33 +156,36 @@ export function LibraryUploadModal({
       const items: LibraryCreateInput[] = [];
 
       if (uploadType === "text") {
-        if (!title.trim()) {
-          setError("Title is required.");
-          return;
-        }
         if (!pasteText.trim()) {
           setError("Paste some text to upload.");
           return;
         }
+        if (!description.trim()) {
+          setError("Description is required for AI course placement.");
+          return;
+        }
         items.push({
-          title: title.trim(),
+          title: title.trim() || undefined,
           description: description.trim(),
           scope,
           pastedText: pasteText.trim(),
         });
       } else if (uploadType === "link" || (uploadType === "video" && videoMode === "link")) {
-        if (!title.trim()) {
-          setError("Title is required.");
-          return;
-        }
         if (!sourceUrl.trim()) {
           setError("Enter a URL.");
           return;
         }
-        const asVideo =
-          uploadType === "video" || urlKind === "video" || isYouTubeUrl(sourceUrl);
+        if (!description.trim()) {
+          setError("Description is required for AI course placement.");
+          return;
+        }
+        if (uploadType === "link" && isYouTubeUrl(sourceUrl.trim())) {
+          setError('YouTube links belong under Video. Choose "Video" → "YouTube / link".');
+          return;
+        }
+        const asVideo = uploadType === "video";
         items.push({
-          title: title.trim(),
+          title: title.trim() || undefined,
           description: description.trim(),
           scope,
           sourceUrl: sourceUrl.trim(),
@@ -156,9 +202,18 @@ export function LibraryUploadModal({
           return;
         }
 
-        for (let i = 0; i < files.length; i++) {
-          const file = files[i];
-          setProgress(`Uploading ${i + 1} of ${files.length}: ${file.name}`);
+        const descriptionError = validateUniqueDescriptions(
+          fileEntries.map((entry) => entry.description),
+        );
+        if (descriptionError) {
+          setError(descriptionError);
+          return;
+        }
+
+        for (let i = 0; i < fileEntries.length; i++) {
+          const entry = fileEntries[i];
+          const file = entry.file;
+          setProgress(`Uploading ${i + 1} of ${fileEntries.length}: ${file.name}`);
 
           let blobUrl: string;
           let filename: string;
@@ -183,8 +238,8 @@ export function LibraryUploadModal({
           }
 
           items.push({
-            title: titleFromFilename(file.name),
-            description: description.trim(),
+            title: entry.title.trim() || undefined,
+            description: entry.description.trim(),
             scope,
             blobUrl,
             uploadedFilename: filename,
@@ -209,6 +264,12 @@ export function LibraryUploadModal({
       setBusy(false);
       setProgress("");
     }
+  }
+
+  function updateFileEntry(key: string, patch: Partial<Pick<FileEntry, "title" | "description">>) {
+    setFileEntries((prev) =>
+      prev.map((entry) => (entry.key === key ? { ...entry, ...patch } : entry)),
+    );
   }
 
   return (
@@ -277,26 +338,38 @@ export function LibraryUploadModal({
               (uploadType === "video" && videoMode === "link")) && (
               <label className="block text-sm">
                 <span className="font-medium text-storm-navy">Title</span>
+                <span className="ml-1 text-storm-navy/50">(optional)</span>
                 <input
-                  required
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   className="mt-1 w-full rounded-lg border border-storm-light-blue/60 px-3 py-2"
+                  placeholder={
+                    uploadType === "text"
+                      ? "Uses first line of text if blank"
+                      : uploadType === "video"
+                        ? "Uses YouTube or video title if blank"
+                        : "Uses page title if blank"
+                  }
                 />
               </label>
             )}
 
-            <label className="block text-sm">
-              <span className="font-medium text-storm-navy">Description</span>
-              <textarea
-                required
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                rows={3}
-                className="mt-1 w-full rounded-lg border border-storm-light-blue/60 px-3 py-2"
-                placeholder="What this is and how to use it…"
-              />
-            </label>
+            {!usesPerFileMetadata && (
+              <label className="block text-sm">
+                <span className="font-medium text-storm-navy">Description</span>
+                <textarea
+                  required
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  rows={3}
+                  className="mt-1 w-full rounded-lg border border-storm-light-blue/60 px-3 py-2"
+                  placeholder="What this is and where AI should use it in courses…"
+                />
+                <span className="mt-1 block text-xs text-storm-navy/55">
+                  AI uses this to decide which courses and lessons to place this in.
+                </span>
+              </label>
+            )}
 
             {canPublishShared && (
               <label className="block text-sm">
@@ -306,8 +379,8 @@ export function LibraryUploadModal({
                   onChange={(e) => setScope(e.target.value as LibraryAssetScope)}
                   className="mt-1 w-full rounded-lg border px-3 py-2"
                 >
-                  <option value="personal">Personal (only me)</option>
                   <option value="shared">Shared (whole team)</option>
+                  <option value="personal">Personal (only me)</option>
                 </select>
               </label>
             )}
@@ -353,21 +426,51 @@ export function LibraryUploadModal({
                     setFiles(Array.from(list).slice(0, MAX_LIBRARY_BATCH_UPLOAD));
                   }}
                 />
-                {files.length > 0 && (
-                  <ul className="max-h-32 overflow-y-auto rounded border text-xs">
-                    {files.map((f) => (
-                      <li
-                        key={`${f.name}-${f.size}`}
-                        className="flex justify-between border-b px-2 py-1 last:border-0"
-                      >
-                        <span className="truncate">{f.name}</span>
-                        <span className="shrink-0 text-storm-navy/50">
-                          {(f.size / 1024).toFixed(0)} KB
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
+              </div>
+            )}
+
+            {usesPerFileMetadata && (
+              <div className="space-y-3">
+                <p className="text-sm text-storm-navy/70">
+                  Add a unique description for each file. Titles default to the file name.
+                </p>
+                <div className="max-h-72 space-y-3 overflow-y-auto rounded-lg border border-storm-light-blue/40 p-2">
+                  {fileEntries.map((entry, index) => (
+                    <div
+                      key={entry.key}
+                      className="space-y-2 rounded-lg bg-storm-light-grey/25 p-3"
+                    >
+                      <p className="truncate text-xs font-medium text-storm-navy">
+                        {entry.file.name}
+                      </p>
+                      <label className="block text-xs">
+                        <span className="font-medium text-storm-navy">Title</span>
+                        <span className="text-storm-navy/50"> (optional)</span>
+                        <input
+                          value={entry.title}
+                          onChange={(e) =>
+                            updateFileEntry(entry.key, { title: e.target.value })
+                          }
+                          placeholder={resolvedPreviewTitles[index] ?? titleFromFilename(entry.file.name)}
+                          className="mt-1 w-full rounded-lg border border-storm-light-blue/60 px-2 py-1.5 text-sm"
+                        />
+                      </label>
+                      <label className="block text-xs">
+                        <span className="font-medium text-storm-navy">Description</span>
+                        <textarea
+                          required
+                          value={entry.description}
+                          onChange={(e) =>
+                            updateFileEntry(entry.key, { description: e.target.value })
+                          }
+                          rows={2}
+                          placeholder="What this file is and where AI should use it…"
+                          className="mt-1 w-full rounded-lg border border-storm-light-blue/60 px-2 py-1.5 text-sm"
+                        />
+                      </label>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
@@ -378,31 +481,29 @@ export function LibraryUploadModal({
                   <span className="font-medium text-storm-navy">URL</span>
                   <input
                     type="url"
+                    required
                     value={sourceUrl}
                     onChange={(e) => setSourceUrl(e.target.value)}
                     className="mt-1 w-full rounded-lg border px-3 py-2"
-                    placeholder="https://…"
+                    placeholder={
+                      uploadType === "video"
+                        ? "https://www.youtube.com/watch?v=…"
+                        : "https://…"
+                    }
                   />
                 </label>
                 {uploadType === "link" && (
-                  <div className="flex gap-4 text-sm">
-                    <label className="flex items-center gap-2">
-                      <input
-                        type="radio"
-                        checked={urlKind === "webpage"}
-                        onChange={() => setUrlKind("webpage")}
-                      />
-                      Web page
-                    </label>
-                    <label className="flex items-center gap-2">
-                      <input
-                        type="radio"
-                        checked={urlKind === "video"}
-                        onChange={() => setUrlKind("video")}
-                      />
-                      Video link
-                    </label>
-                  </div>
+                  <p className="text-xs text-storm-navy/60">
+                    For YouTube or other video links, use{" "}
+                    <button
+                      type="button"
+                      onClick={() => pickType("video")}
+                      className="font-medium text-storm-medium-blue hover:underline"
+                    >
+                      Video → YouTube / link
+                    </button>
+                    .
+                  </p>
                 )}
               </>
             )}
@@ -411,6 +512,7 @@ export function LibraryUploadModal({
               <label className="block text-sm">
                 <span className="font-medium text-storm-navy">Text</span>
                 <textarea
+                  required
                   value={pasteText}
                   onChange={(e) => setPasteText(e.target.value)}
                   rows={6}
@@ -419,17 +521,16 @@ export function LibraryUploadModal({
               </label>
             )}
 
-            {uploadType === "video" &&
-              (videoMode === "files" || urlKind === "video") && (
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={includeRecording}
-                    onChange={(e) => setIncludeRecording(e.target.checked)}
-                  />
-                  Keep video for course playback (Mux)
-                </label>
-              )}
+            {uploadType === "video" && (
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={includeRecording}
+                  onChange={(e) => setIncludeRecording(e.target.checked)}
+                />
+                Keep video for course playback (Mux)
+              </label>
+            )}
 
             {progress && (
               <p className="flex items-center gap-2 text-sm text-storm-navy/70">
