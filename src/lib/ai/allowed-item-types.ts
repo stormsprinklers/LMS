@@ -66,7 +66,7 @@ export function hasVideoCapability(
 export function constrainAllowedTypesForAssets(
   allowed: BlueprintItemType[],
   assets: AssetLike[],
-  options?: { discoverYoutubeVideos?: boolean },
+  options?: { discoverYoutubeVideos?: boolean; discoverImages?: boolean },
 ): BlueprintItemType[] {
   if (!allowed.includes("VIDEO")) return allowed;
   if (hasVideoCapability(assets, options?.discoverYoutubeVideos)) return allowed;
@@ -76,7 +76,7 @@ export function constrainAllowedTypesForAssets(
 export function getCourseStructureGuidance(
   allowed: BlueprintItemType[],
   mode: AiGenerationMode,
-  options?: { discoverYoutubeVideos?: boolean },
+  options?: { discoverYoutubeVideos?: boolean; discoverImages?: boolean },
 ): string {
   const lines: string[] = [
     "CURRICULUM STRUCTURE (preferred pattern — use only allowed types above):",
@@ -84,6 +84,11 @@ export function getCourseStructureGuidance(
 
   if (allowed.includes("LESSON")) {
     lines.push("- Build modules primarily from LESSON items (step-by-step teaching).");
+    if (options?.discoverImages) {
+      lines.push(
+        "- LESSON items may include one auto-discovered photo during content generation (no upload required).",
+      );
+    }
   }
   if (allowed.includes("QUIZ")) {
     lines.push(

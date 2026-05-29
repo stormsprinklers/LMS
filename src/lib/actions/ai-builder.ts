@@ -30,6 +30,14 @@ import {
   distributeVisualMediaAcrossBlueprint,
 } from "@/lib/ai/media-asset-usage";
 import { generateItemContent } from "@/lib/ai/generate-item-content";
+import {
+  createDiscoveredImageAsset,
+  discoverImageForItem,
+} from "@/lib/ai/discover-image";
+import {
+  collectUsedVisualMediaIds,
+  pickVisualMediaForItem,
+} from "@/lib/ai/media-asset-usage";
 import { parseGenerationMessages } from "@/lib/ai/generation-thread";
 import {
   parseAllowedItemTypes,
@@ -80,6 +88,88 @@ function sessionAllowedTypes(raw: unknown): BlueprintItemType[] {
   return parseAllowedItemTypes(raw);
 }
 
+function linkAssetToBlueprintItem(
+  blueprint: CourseBlueprint,
+  moduleIndex: number,
+  itemIndex: number,
+  assetId: string,
+): CourseBlueprint {
+  return {
+    ...blueprint,
+    modules: blueprint.modules.map((mod, mi) =>
+      mi !== moduleIndex
+        ? mod
+        : {
+            ...mod,
+            items: mod.items.map((it, ii) =>
+              ii !== itemIndex
+                ? it
+                : {
+                    ...it,
+                    linkedSourceAssetRefs: [
+                      ...(it.linkedSourceAssetRefs ?? []).filter((id) => id !== assetId),
+                      assetId,
+                    ],
+                  },
+            ),
+          },
+    ),
+  };
+}
+
+async function ensureDiscoveredImageForLesson(options: {
+  sessionId: string;
+  blueprint: CourseBlueprint;
+  moduleIndex: number;
+  itemIndex: number;
+  assets: Awaited<ReturnType<typeof loadSessionAssets>>;
+  courseTitle: string;
+  moduleTitle: string;
+  userPrompt: string;
+}): Promise<{
+  blueprint: CourseBlueprint;
+  assets: Awaited<ReturnType<typeof loadSessionAssets>>;
+}> {
+  const { sessionId, moduleIndex, itemIndex, assets, courseTitle, moduleTitle, userPrompt } =
+    options;
+  let blueprint = options.blueprint;
+
+  const item = blueprint.modules[moduleIndex]?.items[itemIndex];
+  if (!item || item.type !== "LESSON") {
+    return { blueprint, assets };
+  }
+
+  const usedIds = collectUsedVisualMediaIds(blueprint, { moduleIndex, itemIndex });
+  const assignedId = pickVisualMediaForItem(item, assets, usedIds);
+  const assignedAsset = assignedId ? assets.find((a) => a.id === assignedId) : null;
+  if (assignedAsset?.kind === "image") {
+    return { blueprint, assets };
+  }
+
+  if (assets.length >= MAX_ASSETS_PER_SESSION) {
+    return { blueprint, assets };
+  }
+
+  const discovered = await discoverImageForItem({
+    courseTitle,
+    moduleTitle,
+    itemTitle: item.title,
+    outline: item.outline,
+    userPrompt,
+  });
+  if (!discovered) {
+    return { blueprint, assets };
+  }
+
+  const newAsset = await createDiscoveredImageAsset(sessionId, assets.length, discovered);
+  const nextAssets = [...assets, newAsset];
+  blueprint = enrichBlueprintWithAssets(
+    linkAssetToBlueprintItem(blueprint, moduleIndex, itemIndex, newAsset.id),
+    nextAssets,
+  );
+  return { blueprint, assets: nextAssets };
+}
+
 export async function createAiSession(
   courseId: string,
   mode: AiGenerationMode,
@@ -88,6 +178,7 @@ export async function createAiSession(
     userPrompt?: string;
     allowedItemTypes?: BlueprintItemType[];
     discoverYoutubeVideos?: boolean;
+    discoverImages?: boolean;
   },
 ) {
   try {
@@ -105,6 +196,7 @@ export async function createAiSession(
         userPrompt: options?.userPrompt?.trim() || null,
         allowedItemTypes: allowed,
         discoverYoutubeVideos: options?.discoverYoutubeVideos === true,
+        discoverImages: options?.discoverImages === true,
         status: "collecting",
       },
       include: { assets: { orderBy: { sortOrder: "asc" } } },
@@ -147,6 +239,23 @@ export async function getAiSession(sessionId: string) {
   if (!row) return { error: "Session not found." };
   await requireManageCourse(row.courseId);
   return { session: row };
+}
+
+export async function updateAiSessionDiscoverImages(
+  sessionId: string,
+  discoverImages: boolean,
+) {
+  const row = await prisma.aiGenerationSession.findUnique({
+    where: { id: sessionId },
+    select: { courseId: true },
+  });
+  if (!row) return { error: "Session not found." };
+  await requireManageCourse(row.courseId);
+  await prisma.aiGenerationSession.update({
+    where: { id: sessionId },
+    data: { discoverImages },
+  });
+  return { success: true as const };
 }
 
 export async function updateAiSessionDiscoverYoutube(
@@ -480,6 +589,7 @@ export async function generateCourseStructure(sessionId: string) {
   });
 
   const discoverYoutubeVideos = aiSession.discoverYoutubeVideos === true;
+  const discoverImages = aiSession.discoverImages === true;
   const allowed = constrainAllowedTypesForAssets(
     sessionAllowedTypes(aiSession.allowedItemTypes),
     aiSession.assets,
@@ -496,6 +606,7 @@ export async function generateCourseStructure(sessionId: string) {
       assets: aiSession.assets,
       allowedItemTypes: allowed,
       discoverYoutubeVideos,
+      discoverImages,
     });
 
 const STRUCTURE_MAX_TOKENS = 8_192;
@@ -645,16 +756,39 @@ export async function generateNextBlueprintItem(sessionId: string) {
   const { moduleIndex, itemIndex, item, moduleTitle } = flat[cursor];
 
   try {
+    let assetsForGen = aiSession.assets;
+    if (aiSession.discoverImages === true && item.type === "LESSON") {
+      const withImage = await ensureDiscoveredImageForLesson({
+        sessionId,
+        blueprint,
+        moduleIndex,
+        itemIndex,
+        assets: assetsForGen,
+        courseTitle: aiSession.course.title,
+        moduleTitle,
+        userPrompt: aiSession.userPrompt ?? "",
+      });
+      blueprint = withImage.blueprint;
+      assetsForGen = withImage.assets;
+      if (assetsForGen.length !== aiSession.assets.length) {
+        await prisma.aiGenerationSession.update({
+          where: { id: sessionId },
+          data: { blueprintJson: blueprint as object },
+        });
+      }
+    }
+
     const thread = parseGenerationMessages(aiSession.generationMessages);
     const generation = await generateItemContent({
       blueprint,
       moduleIndex,
       itemIndex,
-      assets: aiSession.assets,
+      assets: assetsForGen,
       thread,
       userPrompt: aiSession.userPrompt ?? "",
       allowedItemTypes: allowed,
       discoverYoutubeVideos: aiSession.discoverYoutubeVideos === true,
+      discoverImages: aiSession.discoverImages === true,
     });
 
     const existingSkipped = blueprint.generationSkippedItems ?? [];

@@ -48,6 +48,7 @@ export function buildGenerationMessages(options: {
   assets: AiSourceAsset[];
   allowedItemTypes: BlueprintItemType[];
   discoverYoutubeVideos?: boolean;
+  discoverImages?: boolean;
 }) {
   const {
     mode,
@@ -58,6 +59,7 @@ export function buildGenerationMessages(options: {
     assets,
     allowedItemTypes,
     discoverYoutubeVideos,
+    discoverImages,
   } = options;
   const hasVideoResource = hasVideoCapability(assets, discoverYoutubeVideos);
 
@@ -92,6 +94,7 @@ export function buildGenerationMessages(options: {
   const allowedBlock = `ALLOWED ITEM TYPES (use ONLY these — do not add other types): ${formatAllowedTypesForPrompt(allowedItemTypes)}.`;
   const structureGuidance = getCourseStructureGuidance(allowedItemTypes, mode, {
     discoverYoutubeVideos,
+    discoverImages,
   });
 
   const modeInstructions =
@@ -135,6 +138,7 @@ export function buildStructureGenerationMessages(options: {
   assets: AiSourceAsset[];
   allowedItemTypes: BlueprintItemType[];
   discoverYoutubeVideos?: boolean;
+  discoverImages?: boolean;
 }) {
   const {
     mode,
@@ -145,6 +149,7 @@ export function buildStructureGenerationMessages(options: {
     assets,
     allowedItemTypes,
     discoverYoutubeVideos,
+    discoverImages,
   } = options;
   const hasVideoResource = hasVideoCapability(assets, discoverYoutubeVideos);
 
@@ -157,11 +162,13 @@ export function buildStructureGenerationMessages(options: {
     assets,
     allowedItemTypes,
     discoverYoutubeVideos,
+    discoverImages,
   });
 
   const allowedBlock = `ALLOWED ITEM TYPES (use ONLY these): ${formatAllowedTypesForPrompt(allowedItemTypes)}.`;
   const structureGuidance = getCourseStructureGuidance(allowedItemTypes, mode, {
     discoverYoutubeVideos,
+    discoverImages,
   });
 
   const modeInstructions =
@@ -202,11 +209,13 @@ Each image or video upload must appear in linkedSourceAssetRefs for at most ONE 
 
 function contentInstructionsForType(
   type: BlueprintItemType,
-  options?: { discoverYoutubeVideos?: boolean },
+  options?: { discoverYoutubeVideos?: boolean; discoverImages?: boolean },
 ): string {
   switch (type) {
     case "LESSON":
-      return `LESSON: ${LESSON_HTML_AUTHORING_GUIDE} Use at most one <storm-media> marker only if this item is assigned a media asset.`;
+      return options?.discoverImages
+        ? `LESSON: ${LESSON_HTML_AUTHORING_GUIDE} Include one <storm-media> marker when an image asset is assigned to this item (auto-discovered photos are linked during generation).`
+        : `LESSON: ${LESSON_HTML_AUTHORING_GUIDE} Use at most one <storm-media> marker only if this item is assigned a media asset.`;
     case "VIDEO":
       return options?.discoverYoutubeVideos
         ? "VIDEO: youtubeUrl and a short transcript summary (YouTube will be selected automatically if not specified)."
@@ -233,6 +242,7 @@ export function buildItemContentUserMessage(options: {
   usedMediaAssetIds?: Set<string>;
   assignedMediaAssetId?: string | null;
   discoverYoutubeVideos?: boolean;
+  discoverImages?: boolean;
 }) {
   const {
     blueprint,
@@ -241,6 +251,8 @@ export function buildItemContentUserMessage(options: {
     assets,
     usedMediaAssetIds = new Set(),
     assignedMediaAssetId = null,
+    discoverYoutubeVideos,
+    discoverImages,
   } = options;
   const mod = blueprint.modules[moduleIndex];
   const item = mod?.items[itemIndex];
@@ -280,10 +292,14 @@ export function buildItemContentUserMessage(options: {
     `Keep type, title, outline, track, and linkedSourceAssetRefs unless you must adjust them.`,
     item.type === "LESSON" ? LESSON_HTML_AUTHORING_GUIDE : "",
     contentInstructionsForType(item.type as BlueprintItemType, {
-      discoverYoutubeVideos: options.discoverYoutubeVideos,
+      discoverYoutubeVideos,
+      discoverImages,
     }),
-    item.type === "VIDEO" && options.discoverYoutubeVideos
+    item.type === "VIDEO" && discoverYoutubeVideos
       ? "A related public YouTube video will be attached automatically when you omit youtubeUrl."
+      : "",
+    item.type === "LESSON" && discoverImages && assignedMediaAssetId
+      ? "Place the assigned photo inline with <storm-media> in the section it illustrates."
       : "",
     options.allowedItemTypes.includes(item.type as BlueprintItemType)
       ? ""

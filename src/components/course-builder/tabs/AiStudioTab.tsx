@@ -17,6 +17,7 @@ import {
   updateAiSessionPrompt,
   updateAiSessionAllowedItemTypes,
   updateAiSessionDiscoverYoutube,
+  updateAiSessionDiscoverImages,
   uploadAiSource,
   deleteAiSourceAsset,
   attachLibraryAssetsToSession,
@@ -109,6 +110,7 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
     ...DEFAULT_ALLOWED_ITEM_TYPES,
   ]);
   const [discoverYoutubeVideos, setDiscoverYoutubeVideos] = useState(false);
+  const [discoverImages, setDiscoverImages] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [assets, setAssets] = useState<
     {
@@ -161,6 +163,9 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
     }
     if (typeof data.discoverYoutubeVideos === "boolean") {
       setDiscoverYoutubeVideos(data.discoverYoutubeVideos);
+    }
+    if (typeof data.discoverImages === "boolean") {
+      setDiscoverImages(data.discoverImages);
     }
     if (data.blueprintJson) {
       const bp = data.blueprintJson as CourseBlueprint;
@@ -317,6 +322,7 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
         allowedItemTypes,
         discoverYoutubeVideos:
           discoverYoutubeVideos && allowedItemTypes.includes("VIDEO"),
+        discoverImages: discoverImages && allowedItemTypes.includes("LESSON"),
       });
       if (result.error) {
         setError(result.error);
@@ -492,6 +498,10 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
     await updateAiSessionDiscoverYoutube(
       sessionId,
       discoverYoutubeVideos && allowedItemTypes.includes("VIDEO"),
+    );
+    await updateAiSessionDiscoverImages(
+      sessionId,
+      discoverImages && allowedItemTypes.includes("LESSON"),
     );
     const typesResult = await updateAiSessionAllowedItemTypes(
       sessionId,
@@ -738,8 +748,31 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
               if (!types.includes("VIDEO")) {
                 setDiscoverYoutubeVideos(false);
               }
+              if (!types.includes("LESSON")) {
+                setDiscoverImages(false);
+              }
             }}
           />
+
+          {allowedItemTypes.includes("LESSON") && (
+            <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-storm-light-blue/50 bg-storm-light-grey/25 p-3 text-sm text-storm-navy">
+              <input
+                type="checkbox"
+                className="mt-1 h-4 w-4 shrink-0"
+                checked={discoverImages}
+                onChange={(e) => setDiscoverImages(e.target.checked)}
+              />
+              <span>
+                <span className="font-medium">Find related photos automatically</span>
+                <span className="mt-1 block text-xs text-storm-navy/65">
+                  AI will search for a relevant photo for each lesson and embed it inline
+                  instead of requiring you to upload images. Works with Wikimedia Commons by
+                  default; optional <code className="text-[11px]">UNSPLASH_ACCESS_KEY</code> or{" "}
+                  <code className="text-[11px]">PEXELS_API_KEY</code> improve results.
+                </span>
+              </span>
+            </label>
+          )}
 
           {allowedItemTypes.includes("VIDEO") && (
             <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-storm-light-blue/50 bg-storm-light-grey/25 p-3 text-sm text-storm-navy">

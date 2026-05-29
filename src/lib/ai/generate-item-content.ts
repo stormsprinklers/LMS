@@ -63,9 +63,16 @@ function buildInitialThread(options: {
   allowedItemTypes: BlueprintItemType[];
   assetIds: string[];
   discoverYoutubeVideos?: boolean;
+  discoverImages?: boolean;
 }): GenerationChatMessage[] {
-  const { blueprint, userPrompt, allowedItemTypes, assetIds, discoverYoutubeVideos } =
-    options;
+  const {
+    blueprint,
+    userPrompt,
+    allowedItemTypes,
+    assetIds,
+    discoverYoutubeVideos,
+    discoverImages,
+  } = options;
   const assetIdList =
     assetIds.length > 0
       ? `Valid sourceAssetRef ids (copy exactly): ${assetIds.join(", ")}.`
@@ -77,7 +84,7 @@ function buildInitialThread(options: {
       content: `You are an instructional designer writing one section of a training course at a time.
 Output JSON with a single "item" object. Maintain consistency with the approved course structure and prior item summaries in the conversation.
 Allowed item types: ${formatAllowedTypesForPrompt(allowedItemTypes)}.
-${getCourseStructureGuidance(allowedItemTypes, blueprint.mode, { discoverYoutubeVideos })}
+${getCourseStructureGuidance(allowedItemTypes, blueprint.mode, { discoverYoutubeVideos, discoverImages })}
 ${assetIdList}
 ${LESSON_HTML_AUTHORING_GUIDE}
 ${MEDIA_USAGE_GUIDE}
@@ -344,6 +351,7 @@ export async function generateItemContent(options: {
   userPrompt: string;
   allowedItemTypes: BlueprintItemType[];
   discoverYoutubeVideos?: boolean;
+  discoverImages?: boolean;
 }): Promise<GenerateItemContentResult> {
   const {
     blueprint,
@@ -353,6 +361,7 @@ export async function generateItemContent(options: {
     userPrompt,
     allowedItemTypes,
     discoverYoutubeVideos,
+    discoverImages,
   } = options;
 
   const skeleton = blueprint.modules[moduleIndex]?.items[itemIndex];
@@ -394,6 +403,7 @@ export async function generateItemContent(options: {
           allowedItemTypes,
           assetIds,
           discoverYoutubeVideos,
+          discoverImages,
         });
 
   const userMessage = buildItemContentUserMessage({
@@ -405,6 +415,7 @@ export async function generateItemContent(options: {
     usedMediaAssetIds,
     assignedMediaAssetId,
     discoverYoutubeVideos,
+    discoverImages,
   });
 
   const hasUploadForVideo =

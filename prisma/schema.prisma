@@ -285,6 +285,7 @@ model AiGenerationSession {
   structureApproved   Boolean           @default(false)
   allowedItemTypes    Json              @default("[\"LESSON\",\"QUIZ\",\"EXAM\",\"VIDEO\"]")
   discoverYoutubeVideos Boolean         @default(false)
+  discoverImages        Boolean         @default(false)
   error               String?           @db.Text
   createdAt           DateTime          @default(now())
   updatedAt           DateTime          @updatedAt
