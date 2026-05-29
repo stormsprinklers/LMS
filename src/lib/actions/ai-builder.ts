@@ -34,6 +34,7 @@ import {
   isHttpUrl,
   MAX_MEDIA_FILE_BYTES,
 } from "@/lib/media/asset-utils";
+import { getReadyLibraryAssetIdsByTagIds } from "@/lib/library/tags";
 
 const MAX_FILE_BYTES = MAX_MEDIA_FILE_BYTES;
 const MAX_ASSETS_PER_SESSION = 20;
@@ -161,12 +162,21 @@ function readSourceNote(formData: FormData): string | null {
 export async function attachLibraryAssetsToSession(
   sessionId: string,
   libraryAssetIds: string[],
+  tagIds: string[] = [],
 ): Promise<{ attached?: number; error?: string }> {
   try {
     const session = await requireUserForAiSession(sessionId);
-    if (!libraryAssetIds.length) return { error: "Select at least one library item." };
+    const userId = session.userId;
 
-    const uniqueIds = [...new Set(libraryAssetIds)];
+    const fromTags =
+      tagIds.length > 0
+        ? await getReadyLibraryAssetIdsByTagIds(userId, tagIds)
+        : [];
+
+    const uniqueIds = [...new Set([...libraryAssetIds, ...fromTags])];
+    if (!uniqueIds.length) {
+      return { error: "Select library items or tags with ready materials." };
+    }
     const currentCount = await prisma.aiSourceAsset.count({ where: { sessionId } });
     if (currentCount + uniqueIds.length > MAX_ASSETS_PER_SESSION) {
       return {
@@ -181,7 +191,6 @@ export async function attachLibraryAssetsToSession(
       return { error: "One or more library items were not found." };
     }
 
-    const userId = session.userId;
     for (const lib of libraryRows) {
       if (lib.scope !== "shared" && lib.createdById !== userId) {
         return { error: "You cannot use a private library item owned by someone else." };
@@ -479,7 +488,7 @@ export async function generateCourseStructure(sessionId: string) {
       filterBlueprintByAllowedTypes(skeleton, allowed),
       aiSession.assets,
     );
-    const validation = validateStructureBlueprint(structure);
+    const validation = validateStructureBlueprint(structure, allowed);
 
     await prisma.aiGenerationSession.update({
       where: { id: sessionId },
@@ -554,7 +563,7 @@ export async function generateNextBlueprintItem(sessionId: string) {
 
   try {
     const thread = parseGenerationMessages(aiSession.generationMessages);
-    const { item: filled, thread: nextThread } = await generateItemContent({
+    const generation = await generateItemContent({
       blueprint,
       moduleIndex,
       itemIndex,
@@ -564,17 +573,53 @@ export async function generateNextBlueprintItem(sessionId: string) {
       allowedItemTypes: allowed,
     });
 
-    const nextBlueprint: CourseBlueprint = {
-      ...blueprint,
-      modules: blueprint.modules.map((mod, mi) =>
-        mi !== moduleIndex
-          ? mod
-          : {
-              ...mod,
-              items: mod.items.map((it, ii) => (ii !== itemIndex ? it : filled)),
-            },
-      ),
-    };
+    const existingSkipped = blueprint.generationSkippedItems ?? [];
+    let nextBlueprint: CourseBlueprint = blueprint;
+    let skippedThisItem:
+      | {
+          moduleIndex: number;
+          itemIndex: number;
+          title: string;
+          moduleTitle: string;
+          reason: string;
+        }
+      | undefined;
+
+    if (generation.ok) {
+      nextBlueprint = {
+        ...blueprint,
+        modules: blueprint.modules.map((mod, mi) =>
+          mi !== moduleIndex
+            ? mod
+            : {
+                ...mod,
+                items: mod.items.map((it, ii) =>
+                  ii !== itemIndex ? it : generation.item,
+                ),
+              },
+        ),
+      };
+    } else {
+      skippedThisItem = {
+        moduleIndex,
+        itemIndex,
+        title: item.title,
+        moduleTitle,
+        reason: generation.reason,
+      };
+      nextBlueprint = {
+        ...blueprint,
+        generationSkippedItems: [
+          ...existingSkipped.filter(
+            (s) =>
+              !(
+                s.moduleIndex === moduleIndex && s.itemIndex === itemIndex
+              ),
+          ),
+          skippedThisItem,
+        ],
+      };
+    }
 
     const enriched = enrichBlueprintWithAssets(nextBlueprint, aiSession.assets);
     const nextCursor = cursor + 1;
@@ -584,7 +629,7 @@ export async function generateNextBlueprintItem(sessionId: string) {
       where: { id: sessionId },
       data: {
         blueprintJson: enriched as object,
-        generationMessages: nextThread as object[],
+        generationMessages: generation.thread as object[],
         contentItemCursor: nextCursor,
         status: done ? "ready" : "generating_content",
         error: null,
@@ -601,6 +646,7 @@ export async function generateNextBlueprintItem(sessionId: string) {
         total: flat.length,
         label: `${moduleTitle} → ${item.title}`,
       },
+      skippedItem: skippedThisItem,
     };
   } catch (e) {
     const message = e instanceof Error ? e.message : "Content generation failed.";

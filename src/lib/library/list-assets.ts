@@ -22,6 +22,11 @@ export async function listLibraryAssetsImpl(userId: string): Promise<{
       orderBy: [{ updatedAt: "desc" }],
       include: {
         createdBy: { select: { id: true, name: true, email: true } },
+        tags: {
+          include: {
+            tag: { select: { id: true, name: true, slug: true, color: true } },
+          },
+        },
       },
     });
 
@@ -42,6 +47,7 @@ export async function listLibraryAssetsImpl(userId: string): Promise<{
         createdAt: a.createdAt.toISOString(),
         createdBy: a.createdBy,
         isOwner: a.createdById === userId,
+        tags: a.tags.map((row) => row.tag),
       })),
     };
   } catch (e) {

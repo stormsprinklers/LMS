@@ -7,6 +7,8 @@ import {
   type LibraryAssetListItem,
 } from "@/lib/actions/library";
 import { fetchLibraryAssets } from "@/lib/library/client";
+import type { LibraryTagListItem } from "@/lib/library/types";
+import { LibraryTagChip } from "@/components/library/LibraryTagChip";
 import {
   LIBRARY_FOLDERS,
   assetFolder,
@@ -48,12 +50,16 @@ type ScopeFilter = "all" | "shared" | "personal";
 export function LibraryExplorer({
   canPublishShared,
   initialAssets,
+  initialTags = [],
 }: {
   canPublishShared: boolean;
   initialAssets: LibraryAssetListItem[];
+  initialTags?: LibraryTagListItem[];
 }) {
   const [assets, setAssets] = useState(initialAssets);
+  const [tags] = useState(initialTags);
   const [scopeFilter, setScopeFilter] = useState<ScopeFilter>("all");
+  const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [currentFolder, setCurrentFolder] = useState<LibraryFolderId | null>(null);
   const [selectedAsset, setSelectedAsset] = useState<LibraryAssetListItem | null>(
     null,
@@ -84,9 +90,10 @@ export function LibraryExplorer({
       assets.filter((a) => {
         if (scopeFilter === "shared") return a.scope === "shared";
         if (scopeFilter === "personal") return a.scope === "personal";
+        if (tagFilter && !a.tags.some((t) => t.id === tagFilter)) return false;
         return true;
       }),
-    [assets, scopeFilter],
+    [assets, scopeFilter, tagFilter],
   );
 
   const folderCounts = useMemo(() => {
@@ -107,6 +114,13 @@ export function LibraryExplorer({
     if (!currentFolder) return [];
     return scopedAssets.filter((a) => assetInFolder(a, currentFolder));
   }, [scopedAssets, currentFolder]);
+
+  const taggedAssets = useMemo(() => {
+    if (!tagFilter) return [];
+    return scopedAssets;
+  }, [scopedAssets, tagFilter]);
+
+  const activeTag = tags.find((t) => t.id === tagFilter);
 
   function openUpload() {
     setUploadPreset(currentFolder ? folderUploadType(currentFolder) : null);
@@ -209,32 +223,104 @@ export function LibraryExplorer({
               </li>
             ))}
           </ul>
+          {tags.length > 0 && (
+            <>
+              <p className="mt-4 px-2 py-1 text-xs font-semibold uppercase tracking-wide text-storm-navy/50">
+                Tags
+              </p>
+              <div className="space-y-1 px-1">
+                <button
+                  type="button"
+                  onClick={() => setTagFilter(null)}
+                  className={`w-full rounded-md px-2 py-1.5 text-left text-sm ${
+                    tagFilter === null
+                      ? "bg-storm-medium-blue/15 font-medium text-storm-navy"
+                      : "text-storm-navy/80 hover:bg-storm-light-blue/20"
+                  }`}
+                >
+                  All tags
+                </button>
+                {tags.map((tag) => (
+                  <button
+                    key={tag.id}
+                    type="button"
+                    onClick={() => {
+                      setTagFilter(tag.id);
+                      setCurrentFolder(null);
+                    }}
+                    className={`flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm ${
+                      tagFilter === tag.id
+                        ? "bg-storm-medium-blue/15 font-medium text-storm-navy"
+                        : "text-storm-navy/80 hover:bg-storm-light-blue/20"
+                    }`}
+                  >
+                    <LibraryTagChip tag={tag} />
+                    <span className="ml-2 text-xs text-storm-navy/45">{tag.assetCount}</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
         </aside>
 
         {/* Main pane */}
         <div className="min-w-0 flex-1 p-4 sm:p-6">
           {!currentFolder ? (
-            <>
-              <p className="mb-4 text-sm text-storm-navy/60">
-                Choose a folder to browse files, or upload new materials.
-              </p>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-                {LIBRARY_FOLDERS.map((f) => (
-                  <LibraryFolderTile
-                    key={f.id}
-                    label={f.label}
-                    count={folderCounts[f.id]}
-                    icon={FOLDER_ICONS[f.id]}
-                    onClick={() => setCurrentFolder(f.id)}
-                  />
-                ))}
-              </div>
-            </>
+            tagFilter ? (
+              <>
+                <p className="mb-4 text-sm text-storm-navy/60">
+                  {taggedAssets.length} item{taggedAssets.length === 1 ? "" : "s"} tagged{" "}
+                  {activeTag ? (
+                    <LibraryTagChip tag={activeTag} active />
+                  ) : (
+                    "with this tag"
+                  )}
+                  . Open a folder to narrow by type.
+                </p>
+                {taggedAssets.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16 text-center">
+                    <Folder className="h-12 w-12 text-storm-light-blue" />
+                    <p className="mt-3 text-sm text-storm-navy/60">
+                      No items with this tag yet.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+                    {taggedAssets.map((asset) => (
+                      <LibraryAssetTile
+                        key={asset.id}
+                        asset={asset}
+                        onClick={() => setSelectedAsset(asset)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <p className="mb-4 text-sm text-storm-navy/60">
+                  Choose a folder to browse files, or upload new materials.
+                </p>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+                  {LIBRARY_FOLDERS.map((f) => (
+                    <LibraryFolderTile
+                      key={f.id}
+                      label={f.label}
+                      count={folderCounts[f.id]}
+                      icon={FOLDER_ICONS[f.id]}
+                      onClick={() => setCurrentFolder(f.id)}
+                    />
+                  ))}
+                </div>
+              </>
+            )
           ) : folderAssets.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center">
               <Folder className="h-12 w-12 text-storm-light-blue" />
               <p className="mt-3 text-sm text-storm-navy/60">
-                No items in {currentFolderLabel.toLowerCase()} yet.
+                {tagFilter
+                  ? "No items with this tag in this folder."
+                  : `No items in ${currentFolderLabel.toLowerCase()} yet.`}
               </p>
               <button
                 type="button"

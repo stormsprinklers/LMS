@@ -90,6 +90,14 @@ export const scenarioContentSchema = z.object({
   backgroundInfo: z.string().optional(),
 });
 
+export const generationSkippedItemSchema = z.object({
+  moduleIndex: z.number().int().nonnegative(),
+  itemIndex: z.number().int().nonnegative(),
+  title: z.string(),
+  moduleTitle: z.string(),
+  reason: z.string(),
+});
+
 export const blueprintItemSchema = z.object({
   type: itemTypeSchema,
   title: z.string().min(1),
@@ -155,6 +163,7 @@ export const courseBlueprintSchema = z.object({
   modules: z.array(blueprintModuleSchema).default([]),
   sourceAssets: z.array(sourceAssetSchema).optional(),
   mediaPlacements: z.array(mediaPlacementSchema).optional(),
+  generationSkippedItems: z.array(generationSkippedItemSchema).optional(),
 });
 
 export type CourseBlueprint = z.infer<typeof courseBlueprintSchema>;

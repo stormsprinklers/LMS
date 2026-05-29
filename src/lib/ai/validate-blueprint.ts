@@ -1,4 +1,5 @@
 import type { CourseBlueprint, CourseStructure } from "./blueprint-schema";
+import type { BlueprintItemType } from "./allowed-item-types";
 
 export type BlueprintIssue = {
   level: "error" | "warning";
@@ -6,7 +7,10 @@ export type BlueprintIssue = {
   path?: string;
 };
 
-export function validateStructureBlueprint(structure: CourseStructure): {
+export function validateStructureBlueprint(
+  structure: CourseStructure,
+  allowed: BlueprintItemType[] = ["LESSON", "QUIZ", "EXAM", "VIDEO"],
+): {
   ok: boolean;
   issues: BlueprintIssue[];
 } {
@@ -29,7 +33,52 @@ export function validateStructureBlueprint(structure: CourseStructure): {
         });
       }
     });
+
+    if (mod.items.length === 0) return;
+
+    const hasLesson = mod.items.some((i) => i.type === "LESSON");
+    const hasQuiz = mod.items.some((i) => i.type === "QUIZ");
+    const lastType = mod.items[mod.items.length - 1]?.type;
+
+    if (allowed.includes("LESSON") && !hasLesson && mod.items.length >= 2) {
+      issues.push({
+        level: "warning",
+        message: `Module "${mod.title}" has no LESSON items. Prefer teaching with lessons before assessments.`,
+        path: `modules[${mi}].items`,
+      });
+    }
+
+    if (allowed.includes("QUIZ") && hasLesson && !hasQuiz && mod.items.length >= 3) {
+      issues.push({
+        level: "warning",
+        message: `Module "${mod.title}" has lessons but no QUIZ checkpoints.`,
+        path: `modules[${mi}].items`,
+      });
+    }
+
+    if (allowed.includes("EXAM") && lastType !== "EXAM" && mod.items.length >= 2) {
+      issues.push({
+        level: "warning",
+        message: `Module "${mod.title}" should end with an EXAM assessment.`,
+        path: `modules[${mi}].items`,
+      });
+    }
   });
+
+  if (
+    (structure.mode === "course" || structure.mode === "module") &&
+    allowed.includes("EXAM")
+  ) {
+    const lastMod = structure.modules[structure.modules.length - 1];
+    const lastItem = lastMod?.items[lastMod.items.length - 1];
+    if (lastItem && lastItem.type !== "EXAM") {
+      issues.push({
+        level: "warning",
+        message: "Course structure should usually end with a capstone EXAM.",
+        path: "modules",
+      });
+    }
+  }
 
   return { ok: !issues.some((i) => i.level === "error"), issues };
 }

@@ -1,4 +1,7 @@
 import type { LibraryAssetScope } from "@prisma/client";
+import type { LibraryTagListItem } from "@/lib/library/tags";
+
+export type { LibraryTagListItem };
 
 export type LibraryAssetListItem = {
   id: string;
@@ -16,4 +19,5 @@ export type LibraryAssetListItem = {
   createdAt: string;
   createdBy: { id: string; name: string | null; email: string };
   isOwner: boolean;
+  tags: Pick<LibraryTagListItem, "id" | "name" | "slug" | "color">[];
 };

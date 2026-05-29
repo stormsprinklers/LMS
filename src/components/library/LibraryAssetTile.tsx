@@ -6,6 +6,7 @@ import {
   assetPreviewThumbnail,
 } from "@/lib/library/folders";
 import { kindLabel } from "@/lib/media/asset-utils";
+import { LibraryTagList } from "@/components/library/LibraryTagChip";
 import {
   FileText,
   Film,
@@ -73,6 +74,11 @@ export function LibraryAssetTile({
       <p className="mt-2 line-clamp-2 text-sm font-medium text-storm-navy group-hover:text-storm-medium-blue">
         {asset.title}
       </p>
+      {asset.tags.length > 0 && (
+        <div className="mt-1">
+          <LibraryTagList tags={asset.tags} />
+        </div>
+      )}
       <p className="mt-0.5 truncate text-xs text-storm-navy/50">
         {size}
         {asset.filename ? ` · ${asset.filename}` : ""}

@@ -26,7 +26,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  let body: { items?: LibraryCreateInput[]; scope?: LibraryAssetScope };
+  let body: { items?: LibraryCreateInput[]; scope?: LibraryAssetScope; tagIds?: string[] };
   try {
     body = (await request.json()) as typeof body;
   } catch {
@@ -35,6 +35,7 @@ export async function POST(request: Request) {
 
   const items = body.items ?? [];
   const scope = body.scope ?? "shared";
+  const tagIds = body.tagIds ?? [];
   const role = (session.user as { role?: string }).role;
 
   const result = await createLibraryAssetsBatchImpl(
@@ -42,6 +43,7 @@ export async function POST(request: Request) {
     role,
     items,
     scope,
+    tagIds,
   );
 
   if (result.error && !result.created) {

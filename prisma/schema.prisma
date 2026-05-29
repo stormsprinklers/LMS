@@ -206,11 +206,34 @@ model LibraryAsset {
   updatedAt         DateTime                @updatedAt
 
   createdBy User @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  tags      LibraryAssetTag[]
 
   @@index([createdById])
   @@index([scope, archived])
   @@index([sourceCourseItemId])
   @@index([sourceCourseId])
+}
+
+model LibraryTag {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  slug      String   @unique
+  color     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assets LibraryAssetTag[]
+}
+
+model LibraryAssetTag {
+  assetId String
+  tagId   String
+
+  asset LibraryAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  tag   LibraryTag   @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([assetId, tagId])
+  @@index([tagId])
 }
 
 enum AiGenerationMode {
@@ -260,7 +283,7 @@ model AiGenerationSession {
   generationMessages  Json?
   contentItemCursor   Int               @default(0)
   structureApproved   Boolean           @default(false)
-  allowedItemTypes    Json              @default("[\"LESSON\",\"VIDEO\",\"QUIZ\",\"EXAM\",\"SCENARIO\",\"SKILL_CHECK\"]")
+  allowedItemTypes    Json              @default("[\"LESSON\",\"QUIZ\",\"EXAM\",\"VIDEO\"]")
   error               String?           @db.Text
   createdAt           DateTime          @default(now())
   updatedAt           DateTime          @updatedAt

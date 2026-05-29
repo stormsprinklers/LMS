@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import type { LibraryAssetListItem } from "@/lib/actions/library";
 import {
   archiveLibraryAsset,
@@ -11,8 +12,11 @@ import {
   libraryAssetOpensExternally,
 } from "@/components/library/LibraryAssetMedia";
 import { assetDisplaySize } from "@/lib/library/folders";
+import { fetchLibraryTags, saveLibraryAssetTags } from "@/lib/library/client";
+import type { LibraryTagListItem } from "@/lib/library/types";
 import { kindLabel } from "@/lib/media/asset-utils";
 import { Badge } from "@/components/ui/Badge";
+import { LibraryTagChip } from "@/components/library/LibraryTagChip";
 import { formatDate } from "@/lib/utils";
 import {
   Download,
@@ -38,6 +42,40 @@ export function LibraryAssetDetailModal({
   setBusy: (v: boolean) => void;
   setError: (v: string) => void;
 }) {
+  const [allTags, setAllTags] = useState<LibraryTagListItem[]>([]);
+  const [selectedTagIds, setSelectedTagIds] = useState(asset.tags.map((t) => t.id));
+  const [tagsDirty, setTagsDirty] = useState(false);
+
+  useEffect(() => {
+    void fetchLibraryTags().then((r) => {
+      if (r.tags) setAllTags(r.tags);
+    });
+  }, []);
+
+  useEffect(() => {
+    setSelectedTagIds(asset.tags.map((t) => t.id));
+    setTagsDirty(false);
+  }, [asset.id, asset.tags]);
+
+  function toggleTag(tagId: string) {
+    setSelectedTagIds((prev) =>
+      prev.includes(tagId) ? prev.filter((id) => id !== tagId) : [...prev, tagId],
+    );
+    setTagsDirty(true);
+  }
+
+  async function saveTags() {
+    setBusy(true);
+    const result = await saveLibraryAssetTags(asset.id, selectedTagIds);
+    setBusy(false);
+    if (result.error) {
+      setError(result.error);
+      return;
+    }
+    setTagsDirty(false);
+    onRefresh();
+  }
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-end justify-center bg-black/45 p-4 sm:items-center"
@@ -87,6 +125,38 @@ export function LibraryAssetDetailModal({
           </div>
 
           <p className="text-sm text-storm-navy/80">{asset.description}</p>
+
+          {allTags.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-storm-navy">Tags</p>
+              <div className="flex flex-wrap gap-2">
+                {allTags.map((tag) => (
+                  <label
+                    key={tag.id}
+                    className="inline-flex cursor-pointer items-center gap-1.5"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedTagIds.includes(tag.id)}
+                      onChange={() => toggleTag(tag.id)}
+                      disabled={busy}
+                    />
+                    <LibraryTagChip tag={tag} active={selectedTagIds.includes(tag.id)} />
+                  </label>
+                ))}
+              </div>
+              {tagsDirty && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void saveTags()}
+                  className="rounded-lg border px-3 py-1.5 text-sm font-medium"
+                >
+                  Save tags
+                </button>
+              )}
+            </div>
+          )}
 
           {asset.processingError && (
             <p className="text-sm text-red-700">{asset.processingError}</p>

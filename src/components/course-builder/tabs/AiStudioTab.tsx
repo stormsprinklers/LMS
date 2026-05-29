@@ -78,6 +78,7 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
   const [pasteText, setPasteText] = useState("");
   const [pasteNote, setPasteNote] = useState("");
   const [librarySelectedIds, setLibrarySelectedIds] = useState<string[]>([]);
+  const [librarySelectedTagIds, setLibrarySelectedTagIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [blueprint, setBlueprint] = useState<CourseBlueprint | null>(null);
@@ -90,6 +91,7 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
     total: number;
     label?: string;
   } | null>(null);
+  const [generationWarnings, setGenerationWarnings] = useState<string[]>([]);
   const contentGenStarted = useRef(false);
 
   const pollSession = useCallback(async (id: string) => {
@@ -124,6 +126,7 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
     async function runContentGeneration() {
       setBusy(true);
       setError("");
+      setGenerationWarnings([]);
       try {
         while (!cancelled) {
           const result = await generateNextBlueprintItem(sessionId!);
@@ -133,6 +136,12 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
           }
           if (result.blueprint) setBlueprint(result.blueprint);
           if (result.progress) setContentProgress(result.progress);
+          if (result.skippedItem) {
+            setGenerationWarnings((prev) => [
+              ...prev,
+              `Could not write "${result.skippedItem!.title}" (${result.skippedItem!.moduleTitle}). Leave the outline and fill it in manually.`,
+            ]);
+          }
           if (result.done) {
             setStep("preview");
             break;
@@ -503,7 +512,7 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
               rows={4}
               value={userPrompt}
               onChange={(e) => setUserPrompt(e.target.value)}
-              placeholder="Tone, audience, topics to emphasize…"
+              placeholder="Audience, topics to emphasize, module count… (AI defaults to lessons + quizzes, ending with an exam)"
             />
           </label>
 
@@ -541,12 +550,17 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
             </p>
             <LibraryPicker
               selectedIds={librarySelectedIds}
+              selectedTagIds={librarySelectedTagIds}
               onChange={setLibrarySelectedIds}
+              onTagSelectionChange={setLibrarySelectedTagIds}
               disabled={busy}
             />
             <button
               type="button"
-              disabled={busy || librarySelectedIds.length === 0}
+              disabled={
+                busy ||
+                (librarySelectedIds.length === 0 && librarySelectedTagIds.length === 0)
+              }
               onClick={async () => {
                 setBusy(true);
                 setError("");
@@ -554,12 +568,14 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
                   const result = await attachLibraryAssetsToSession(
                     sessionId,
                     librarySelectedIds,
+                    librarySelectedTagIds,
                   );
                   if (result.error) {
                     setError(result.error);
                     return;
                   }
                   setLibrarySelectedIds([]);
+                  setLibrarySelectedTagIds([]);
                   await pollSession(sessionId);
                 } finally {
                   setBusy(false);
@@ -567,8 +583,9 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
               }}
               className="min-h-10 rounded-lg border px-4 text-sm font-medium"
             >
-              Add {librarySelectedIds.length > 0 ? librarySelectedIds.length : ""}{" "}
-              from library
+              Add from library
+              {(librarySelectedIds.length > 0 || librarySelectedTagIds.length > 0) &&
+                ` (${librarySelectedIds.length} item${librarySelectedIds.length === 1 ? "" : "s"}${librarySelectedTagIds.length > 0 ? `, ${librarySelectedTagIds.length} tag${librarySelectedTagIds.length === 1 ? "" : "s"}` : ""})`}
             </button>
           </section>
 
@@ -875,7 +892,7 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
       )}
 
       {step === "generating_content" && (
-        <div className="rounded-xl border bg-white p-4">
+        <div className="space-y-3 rounded-xl border bg-white p-4">
           <AiLoadingSpinner
             label={
               contentProgress
@@ -883,11 +900,38 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
                 : "Generating content…"
             }
           />
+          {generationWarnings.length > 0 && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+              <p className="font-medium">Some items were skipped</p>
+              <ul className="mt-1 list-inside list-disc text-amber-900/90">
+                {generationWarnings.map((w) => (
+                  <li key={w}>{w}</li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
 
       {step === "preview" && blueprint && (
         <div className="space-y-4">
+          {(generationWarnings.length > 0 ||
+            (blueprint.generationSkippedItems?.length ?? 0) > 0) && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+              <p className="font-medium">AI could not write some items</p>
+              <p className="mt-1 text-amber-900/90">
+                These items still have their outline only. Open them in the course builder
+                after apply, or rework them here.
+              </p>
+              <ul className="mt-2 list-inside list-disc">
+                {(blueprint.generationSkippedItems ?? []).map((s) => (
+                  <li key={`${s.moduleIndex}-${s.itemIndex}`}>
+                    {s.moduleTitle} → {s.title}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           <BlueprintPreview
             blueprint={blueprint}
             issues={issues}

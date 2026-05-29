@@ -8,6 +8,7 @@ import { processLibraryAsset } from "@/lib/library/process-library-asset";
 import { isYouTubeUrl } from "@/lib/video/youtube";
 import { MAX_LIBRARY_BATCH_UPLOAD, uniquifyTitles, validateUniqueDescriptions } from "@/lib/library/folders";
 import { resolveLibraryTitle } from "@/lib/library/resolve-title";
+import { setLibraryAssetTagsImpl, validateTagIds } from "@/lib/library/tags";
 
 export type LibraryCreateInput = {
   title?: string;
@@ -26,6 +27,7 @@ export type LibraryCreateInput = {
 type CreateContext = {
   userId: string;
   scope: LibraryAssetScope;
+  tagIds?: string[];
 };
 
 function formatError(e: unknown): string {
@@ -38,6 +40,16 @@ function formatError(e: unknown): string {
     }
   }
   return e instanceof Error ? e.message : "Something went wrong.";
+}
+
+async function finalizeCreatedAsset(
+  assetId: string,
+  ctx: CreateContext,
+): Promise<{ id: string }> {
+  if (ctx.tagIds?.length) {
+    await setLibraryAssetTagsImpl(assetId, ctx.tagIds);
+  }
+  return { id: assetId };
 }
 
 async function createOneLibraryAsset(
@@ -69,7 +81,7 @@ async function createOneLibraryAsset(
         processingStatus: "ready",
       },
     });
-    return { id: asset.id };
+    return finalizeCreatedAsset(asset.id, ctx);
   }
 
   if (sourceUrl) {
@@ -95,7 +107,7 @@ async function createOneLibraryAsset(
       },
     });
     void processLibraryAsset(asset.id);
-    return { id: asset.id };
+    return finalizeCreatedAsset(asset.id, ctx);
   }
 
   const clientBlobUrl = input.blobUrl?.trim() ?? "";
@@ -138,7 +150,7 @@ async function createOneLibraryAsset(
     if (asset.processingStatus === "pending") {
       void processLibraryAsset(asset.id);
     }
-    return { id: asset.id };
+    return finalizeCreatedAsset(asset.id, ctx);
   }
 
   return { error: "No file, link, or text provided." };
@@ -149,6 +161,7 @@ export async function createLibraryAssetsBatchImpl(
   role: string | undefined,
   items: LibraryCreateInput[],
   scopeRaw: LibraryAssetScope = "shared",
+  tagIds: string[] = [],
 ): Promise<{ created?: number; error?: string; errors?: string[] }> {
   try {
     if (!items.length) return { error: "Nothing to upload." };
@@ -164,10 +177,19 @@ export async function createLibraryAssetsBatchImpl(
     );
     if (descriptionError) return { error: descriptionError };
 
+    let validTagIds: string[] = [];
+    if (tagIds.length) {
+      try {
+        validTagIds = await validateTagIds(tagIds);
+      } catch (e) {
+        return { error: e instanceof Error ? e.message : "Invalid tags." };
+      }
+    }
+
     const resolvedTitles = await Promise.all(items.map((item) => resolveLibraryTitle(item)));
     const titles = uniquifyTitles(resolvedTitles);
 
-    const ctx: CreateContext = { userId, scope };
+    const ctx: CreateContext = { userId, scope, tagIds: validTagIds };
     const errors: string[] = [];
     let created = 0;
 

@@ -3,6 +3,7 @@ import type { CourseBlueprint } from "./blueprint-schema";
 import {
   type BlueprintItemType,
   formatAllowedTypesForPrompt,
+  getCourseStructureGuidance,
 } from "./allowed-item-types";
 
 const MAX_CHARS_PER_ASSET = 12_000;
@@ -79,6 +80,7 @@ export function buildGenerationMessages(options: {
   }
 
   const allowedBlock = `ALLOWED ITEM TYPES (use ONLY these — do not add other types): ${formatAllowedTypesForPrompt(allowedItemTypes)}.`;
+  const structureGuidance = getCourseStructureGuidance(allowedItemTypes, mode);
 
   const modeInstructions =
     mode === "course"
@@ -91,7 +93,8 @@ export function buildGenerationMessages(options: {
 Output ONLY valid JSON matching the CourseBlueprint schema (version "1.0").
 Do NOT include sourceAssets[] in the JSON (uploads are tracked server-side).
 Reference uploads only via video.sourceAssetRef or mediaPlacements with assetRef, moduleIndex (0-based), and position (intro|after_section|inline|item_end).
-Prefer practical, safety-aware training content. HTML in lesson.bodyHtml should use simple tags (<p>, <ul>, <li>, <strong>).`;
+Prefer practical, safety-aware training content. HTML in lesson.bodyHtml should use simple tags (<p>, <ul>, <li>, <strong>).
+${structureGuidance}`;
 
   const user = [
     `Course: ${courseTitle}`,
@@ -125,7 +128,8 @@ PHASE 1 — STRUCTURE ONLY:
 - Every item.type MUST be one of the allowed types listed in the user message.
 - Do NOT include lesson.bodyHtml, exam.questions, video transcripts, or other full content.
 - Do NOT include sourceAssets[] in JSON.
-- Link relevant uploads via linkedSourceAssetRefs (asset id strings) when applicable.`;
+- Link relevant uploads via linkedSourceAssetRefs (asset id strings) when applicable.
+- Follow the CURRICULUM STRUCTURE guidance in the system message: lessons and quizzes throughout, EXAM at the end of each module.`;
 
   const user = `${base.user}
 
@@ -208,7 +212,8 @@ export function buildReworkMessages(
         }
       : { course: blueprint.course, modules: blueprint.modules };
 
-  const system = `You revise a CourseBlueprint JSON (version "1.0"). Apply the user's instruction to the provided slice and return the FULL updated blueprint JSON. Keep unchanged sections identical.`;
+  const system = `You revise a CourseBlueprint JSON (version "1.0"). Apply the user's instruction to the provided slice and return the FULL updated blueprint JSON. Keep unchanged sections identical.
+When adding or reordering items, prefer LESSON and QUIZ items with an EXAM at the end of each module.`;
 
   const user = [
     `Instruction: ${instruction}`,
