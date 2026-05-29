@@ -1,5 +1,6 @@
 "use client";
 
+import { LessonHtmlContent } from "@/components/lesson/LessonHtmlContent";
 import type { CourseBlueprint } from "@/lib/ai/blueprint-schema";
 import type { BlueprintIssue } from "@/lib/ai/validate-blueprint";
 import type { CourseItemType } from "@prisma/client";
@@ -151,10 +152,20 @@ function PreviewItemDetail({
         </p>
       )}
       {!structureOnly && item.lesson?.bodyHtml && (
-        <div
-          className="prose prose-sm mt-3 max-w-none"
-          dangerouslySetInnerHTML={{ __html: item.lesson.bodyHtml }}
-        />
+        <div className="mt-3 max-w-none">
+          <LessonHtmlContent
+            html={item.lesson.bodyHtml}
+            assets={(blueprint.sourceAssets ?? []).map((a) => ({
+              id: a.id,
+              kind: a.kind,
+              filename: a.filename ?? null,
+              blobUrl: a.blobUrl ?? null,
+              muxPlaybackId: a.muxPlaybackId ?? null,
+              extractedText: a.extractedText ?? null,
+              placementHint: a.placementHint ?? null,
+            }))}
+          />
+        </div>
       )}
       {item.video && (
         <div className="mt-3 space-y-2 text-xs">

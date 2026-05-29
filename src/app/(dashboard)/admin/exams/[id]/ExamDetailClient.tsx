@@ -8,6 +8,7 @@ import {
   deleteQuestion,
 } from "@/lib/actions/exams-admin";
 import { ExamCsvTools } from "@/components/exams/ExamCsvTools";
+import { ExamAiBuilder } from "@/components/exams/ExamAiBuilder";
 import { ExamDangerZone } from "@/components/exams/ExamDangerZone";
 import { QuestionEditor } from "@/components/exams/QuestionEditor";
 import { UserAssignmentList } from "@/components/ui/UserAssignmentList";
@@ -216,6 +217,12 @@ export function ExamDetailClient({
           }}
         />
       </div>
+
+      <ExamAiBuilder
+        examId={exam.id}
+        examTitle={exam.title}
+        questionCount={exam.questions.length}
+      />
 
       <QuestionEditor
         examId={exam.id}

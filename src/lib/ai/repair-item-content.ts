@@ -1,4 +1,5 @@
 import type { BlueprintItem } from "./blueprint-schema";
+import { normalizeLessonBodyHtml } from "./lesson-html";
 
 export type ItemContentValidationContext = {
   assetIds?: Set<string>;
@@ -151,9 +152,9 @@ export function repairGeneratedItemCandidate(
         : {};
     let html = String(lesson.bodyHtml ?? "").trim();
     if (!html && skeleton.outline?.trim()) {
-      html = `<p>${skeleton.outline.trim()}</p>`;
-      lesson.bodyHtml = html;
+      html = `<h2>Overview</h2>\n<p>${skeleton.outline.trim()}</p>`;
     }
+    lesson.bodyHtml = normalizeLessonBodyHtml(html);
     merged.lesson = lesson;
   }
 

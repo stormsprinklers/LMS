@@ -5,6 +5,7 @@ import {
   formatAllowedTypesForPrompt,
   getCourseStructureGuidance,
 } from "./allowed-item-types";
+import { LESSON_HTML_AUTHORING_GUIDE } from "./lesson-html";
 
 const MAX_CHARS_PER_ASSET = 12_000;
 const MAX_TOTAL_CONTEXT = 80_000;
@@ -93,7 +94,8 @@ export function buildGenerationMessages(options: {
 Output ONLY valid JSON matching the CourseBlueprint schema (version "1.0").
 Do NOT include sourceAssets[] in the JSON (uploads are tracked server-side).
 Reference uploads only via video.sourceAssetRef or mediaPlacements with assetRef, moduleIndex (0-based), and position (intro|after_section|inline|item_end).
-Prefer practical, safety-aware training content. HTML in lesson.bodyHtml should use simple tags (<p>, <ul>, <li>, <strong>).
+Prefer practical, safety-aware training content.
+${LESSON_HTML_AUTHORING_GUIDE}
 ${structureGuidance}`;
 
   const user = [
@@ -176,7 +178,7 @@ Do NOT include sourceAssets[] in JSON — reference uploads only via linkedSourc
 function contentInstructionsForType(type: BlueprintItemType): string {
   switch (type) {
     case "LESSON":
-      return "LESSON: rich bodyHtml (multiple sections, lists, practical steps).";
+      return `LESSON: ${LESSON_HTML_AUTHORING_GUIDE} Place <storm-media> markers next to the paragraph that references each source.`;
     case "VIDEO":
       return "VIDEO: sourceAssetRef and/or youtubeUrl, transcript summary if no recording.";
     case "QUIZ":
@@ -227,6 +229,7 @@ export function buildItemContentUserMessage(options: {
     assetNotes ? `Linked source excerpts:\n${assetNotes}` : "",
     `Return JSON: { "item": { ...complete item with ${item.type} content filled in... } }`,
     `Keep type, title, outline, track, and linkedSourceAssetRefs unless you must adjust them.`,
+    item.type === "LESSON" ? LESSON_HTML_AUTHORING_GUIDE : "",
     contentInstructionsForType(item.type as BlueprintItemType),
     options.allowedItemTypes.includes(item.type as BlueprintItemType)
       ? ""

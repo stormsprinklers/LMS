@@ -8,6 +8,7 @@ import {
   formatAllowedTypesForPrompt,
   getCourseStructureGuidance,
 } from "./allowed-item-types";
+import { LESSON_HTML_AUTHORING_GUIDE } from "./lesson-html";
 import { compactItemSummary, repairGeneratedItemCandidate } from "./repair-item-content";
 import {
   buildItemValidationRetryMessage,
@@ -62,8 +63,9 @@ Output JSON with a single "item" object. Maintain consistency with the approved 
 Allowed item types: ${formatAllowedTypesForPrompt(allowedItemTypes)}.
 ${getCourseStructureGuidance(allowedItemTypes, blueprint.mode)}
 ${assetIdList}
+${LESSON_HTML_AUTHORING_GUIDE}
 Author instructions: ${userPrompt || "(none)"}
-Return valid JSON only. LESSON items need lesson.bodyHtml (HTML, substantive). EXAM/QUIZ need exam.questions[] with options and isCorrect on at least one option per question. VIDEO: use youtubeUrl OR sourceAssetRef from the valid id list OR transcript.`,
+Return valid JSON only. LESSON items need lesson.bodyHtml using h2 titles and p paragraphs plus storm-media markers for inline sources. EXAM/QUIZ need exam.questions[] with options and isCorrect on at least one option per question. VIDEO: use youtubeUrl OR sourceAssetRef from the valid id list OR transcript.`,
     },
     {
       role: "user",

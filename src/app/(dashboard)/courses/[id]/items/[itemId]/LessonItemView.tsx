@@ -1,6 +1,7 @@
 "use client";
 
 import { markCourseItemComplete } from "@/lib/actions/course-progress";
+import { LessonHtmlContent } from "@/components/lesson/LessonHtmlContent";
 import { useState } from "react";
 
 export function LessonItemView({
@@ -23,10 +24,9 @@ export function LessonItemView({
   return (
     <div className="mt-6">
       {bodyHtml ? (
-        <div
-          className="prose prose-sm max-w-none rounded-xl border bg-white p-5 text-storm-navy"
-          dangerouslySetInnerHTML={{ __html: bodyHtml }}
-        />
+        <div className="rounded-xl border bg-white p-5 text-storm-navy">
+          <LessonHtmlContent html={bodyHtml} />
+        </div>
       ) : (
         <p className="text-sm text-storm-navy/60">No content yet.</p>
       )}

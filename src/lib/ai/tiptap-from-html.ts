@@ -1,28 +1,93 @@
-/** Minimal TipTap JSON doc from HTML string (paragraphs). */
-export function tiptapDocFromHtml(html: string): Record<string, unknown> {
-  const stripped = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-  if (!stripped) {
-    return { type: "doc", content: [{ type: "paragraph" }] };
-  }
-  const paragraphs = html
-    .split(/<\/p>|<br\s*\/?>/gi)
-    .map((p) => p.replace(/<[^>]+>/g, "").trim())
-    .filter(Boolean);
+import { expandStormMediaInLessonHtml, type LessonMediaAsset } from "./lesson-html";
 
-  if (paragraphs.length === 0) {
+function stripTags(html: string): string {
+  return html.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+}
+
+function textNode(text: string) {
+  return text ? [{ type: "text", text }] : [];
+}
+
+function paragraphFromHtml(inner: string) {
+  const text = stripTags(inner);
+  return {
+    type: "paragraph",
+    content: textNode(text),
+  };
+}
+
+function headingFromHtml(level: 2 | 3, inner: string) {
+  const text = stripTags(inner);
+  return {
+    type: "heading",
+    attrs: { level },
+    content: textNode(text),
+  };
+}
+
+/** TipTap JSON doc from lesson HTML (headings, paragraphs, lists). */
+export function tiptapDocFromHtml(
+  html: string,
+  assets: LessonMediaAsset[] = [],
+): Record<string, unknown> {
+  const expanded = expandStormMediaInLessonHtml(html, assets);
+  const blocks: Record<string, unknown>[] = [];
+
+  const re = new RegExp(
+    '<(h2|h3|p|ul)(?:\\s[^>]*)?>([\\s\\S]*?)<\\/\\1>',
+    "gi",
+  );
+
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = re.exec(expanded)) !== null) {
+    const before = expanded.slice(lastIndex, match.index).trim();
+    if (before) {
+      const text = stripTags(before);
+      if (text) blocks.push(paragraphFromHtml(text));
+    }
+
+    const tag = match[1].toLowerCase();
+    const inner = match[2] ?? "";
+
+    if (tag === "h2") blocks.push(headingFromHtml(2, inner));
+    else if (tag === "h3") blocks.push(headingFromHtml(3, inner));
+    else if (tag === "p") blocks.push(paragraphFromHtml(inner));
+    else if (tag === "ul") {
+      const items = inner.match(/<li[^>]*>([\s\S]*?)<\/li>/gi) ?? [];
+      if (items.length > 0) {
+        blocks.push({
+          type: "bulletList",
+          content: items.map((li) => ({
+            type: "listItem",
+            content: [paragraphFromHtml(li.replace(/<\/?li[^>]*>/gi, ""))],
+          })),
+        });
+      }
+    }
+
+    lastIndex = match.index + match[0].length;
+  }
+
+  const tail = expanded.slice(lastIndex).trim();
+  if (tail) {
+    const text = stripTags(tail);
+    if (text) blocks.push(paragraphFromHtml(text));
+  }
+
+  if (blocks.length === 0) {
+    const stripped = stripTags(expanded);
+    if (!stripped) {
+      return { type: "doc", content: [{ type: "paragraph" }] };
+    }
     return {
       type: "doc",
-      content: [{ type: "paragraph", content: [{ type: "text", text: stripped }] }],
+      content: [paragraphFromHtml(stripped)],
     };
   }
 
-  return {
-    type: "doc",
-    content: paragraphs.map((text) => ({
-      type: "paragraph",
-      content: text ? [{ type: "text", text }] : [],
-    })),
-  };
+  return { type: "doc", content: blocks };
 }
 
 export function injectImageIntoHtml(
@@ -31,8 +96,8 @@ export function injectImageIntoHtml(
   alt: string,
   position: "intro" | "after_section" | "inline" | "item_end",
 ): string {
-  const img = `<p><img src="${imageUrl}" alt="${alt.replace(/"/g, "&quot;")}" /></p>`;
-  if (position === "intro") return img + html;
-  if (position === "item_end") return html + img;
-  return html + img;
+  const img = `<figure class="lesson-media lesson-media--image"><img src="${imageUrl}" alt="${alt.replace(/"/g, "&quot;")}" loading="lazy" /><figcaption>${alt.replace(/"/g, "&quot;")}</figcaption></figure>`;
+  if (position === "intro") return `${img}\n${html}`;
+  if (position === "item_end") return `${html}\n${img}`;
+  return `${html}\n${img}`;
 }

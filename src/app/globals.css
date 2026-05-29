@@ -35,3 +35,107 @@ body {
   font-family: var(--font-title), system-ui, sans-serif;
   letter-spacing: 0.02em;
 }
+
+/* AI / imported lesson HTML (h2 titles, paragraphs, inline media) */
+.lesson-content {
+  color: var(--storm-navy);
+  font-size: 1rem;
+  line-height: 1.65;
+  max-width: 48rem;
+}
+
+.lesson-content h2 {
+  font-family: var(--font-title), system-ui, sans-serif;
+  font-size: 1.375rem;
+  font-weight: 700;
+  line-height: 1.3;
+  margin: 1.75rem 0 0.75rem;
+  color: var(--storm-navy);
+}
+
+.lesson-content h2:first-child {
+  margin-top: 0;
+}
+
+.lesson-content h3 {
+  font-family: var(--font-title), system-ui, sans-serif;
+  font-size: 1.125rem;
+  font-weight: 700;
+  line-height: 1.35;
+  margin: 1.25rem 0 0.5rem;
+  color: var(--storm-navy);
+}
+
+.lesson-content p {
+  margin: 0 0 1rem;
+}
+
+.lesson-content p:last-child {
+  margin-bottom: 0;
+}
+
+.lesson-content ul,
+.lesson-content ol {
+  margin: 0 0 1rem;
+  padding-left: 1.5rem;
+}
+
+.lesson-content li {
+  margin-bottom: 0.35rem;
+}
+
+.lesson-content strong {
+  font-weight: 600;
+}
+
+.lesson-content .lesson-media {
+  margin: 1.25rem 0;
+}
+
+.lesson-content .lesson-media img {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.5rem;
+}
+
+.lesson-content .lesson-media__frame {
+  position: relative;
+  width: 100%;
+  padding-bottom: 56.25%;
+  border-radius: 0.5rem;
+  overflow: hidden;
+  background: var(--storm-navy);
+}
+
+.lesson-content .lesson-media__frame iframe,
+.lesson-content .lesson-media__frame video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.lesson-content .lesson-media__video:not(.lesson-media__frame video) {
+  width: 100%;
+  border-radius: 0.5rem;
+}
+
+.lesson-content .lesson-media__audio {
+  width: 100%;
+}
+
+.lesson-content figcaption {
+  margin-top: 0.5rem;
+  font-size: 0.875rem;
+  color: color-mix(in srgb, var(--storm-navy) 65%, transparent);
+  text-align: center;
+}
+
+.lesson-content .lesson-media__missing {
+  font-size: 0.875rem;
+  color: color-mix(in srgb, var(--storm-navy) 55%, transparent);
+  font-style: italic;
+}

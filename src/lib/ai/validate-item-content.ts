@@ -4,6 +4,10 @@ import {
   type BlueprintItem,
 } from "./blueprint-schema";
 import { tiptapDocFromHtml } from "./tiptap-from-html";
+import {
+  lessonHtmlUsesStormMedia,
+  normalizeLessonBodyHtml,
+} from "./lesson-html";
 import { isYouTubeUrl } from "@/lib/video/youtube";
 
 import type { ItemContentValidationContext } from "./repair-item-content";
@@ -59,22 +63,51 @@ function validateExamQuestions(item: BlueprintItem, issues: string[]): void {
   });
 }
 
-function validateLessonContent(item: BlueprintItem, issues: string[]): void {
-  const html = item.lesson?.bodyHtml?.trim() ?? "";
-  if (!html) {
+function validateLessonContent(
+  item: BlueprintItem,
+  issues: string[],
+  ctx?: ItemContentValidationContext,
+): void {
+  let html = normalizeLessonBodyHtml(item.lesson?.bodyHtml?.trim() ?? "");
+  if (!html || html === "<p></p>") {
     issues.push("lesson.bodyHtml: Lesson body HTML is required.");
     return;
   }
   if (html.length < 24) {
     issues.push("lesson.bodyHtml: Lesson content is too short (write substantive HTML).");
   }
+  if (!/<h2\b/i.test(html)) {
+    issues.push(
+      "lesson.bodyHtml: Include at least one <h2> section title for major topics.",
+    );
+  }
+  if (!/<p\b/i.test(html)) {
+    issues.push("lesson.bodyHtml: Wrap body text in <p> paragraph tags.");
+  }
   if (/<script[\s>]/i.test(html)) {
     issues.push("lesson.bodyHtml: Do not include script tags.");
   }
+
+  if (lessonHtmlUsesStormMedia(html) && ctx?.assetIds) {
+    const refs = html.matchAll(/asset-id\s*=\s*["']([^"']+)["']/gi);
+    for (const m of refs) {
+      const id = m[1];
+      if (!ctx.assetIds.has(id)) {
+        issues.push(
+          `lesson.bodyHtml: storm-media references unknown asset id "${id}".`,
+        );
+      }
+    }
+  }
+
   try {
-    tiptapDocFromHtml(html);
+    tiptapDocFromHtml(html, []);
   } catch {
     issues.push("lesson.bodyHtml: Could not convert HTML to lesson format.");
+  }
+
+  if (item.lesson) {
+    item.lesson.bodyHtml = html;
   }
 }
 
@@ -150,7 +183,7 @@ export function validateGeneratedItemContent(
 
   switch (item.type) {
     case "LESSON":
-      validateLessonContent(item, issues);
+      validateLessonContent(item, issues, ctx);
       break;
     case "VIDEO":
       validateVideoContent(item, issues, ctx);

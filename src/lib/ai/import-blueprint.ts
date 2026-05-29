@@ -2,7 +2,12 @@ import { prisma } from "@/lib/db";
 import { requireManageCourse } from "@/lib/auth-utils";
 import type { CourseBlueprint, BlueprintItem } from "./blueprint-schema";
 import { validateBlueprint } from "./validate-blueprint";
-import { injectImageIntoHtml, tiptapDocFromHtml } from "./tiptap-from-html";
+import { tiptapDocFromHtml, injectImageIntoHtml } from "./tiptap-from-html";
+import {
+  expandStormMediaInLessonHtml,
+  normalizeLessonBodyHtml,
+  type LessonMediaAsset,
+} from "./lesson-html";
 import type {
   ContentStatus,
   CourseItemTrack,
@@ -72,18 +77,21 @@ function applyMediaToLessonHtml(
   moduleIndex: number,
   itemIndex: number,
 ): string {
+  const assets = (blueprint.sourceAssets ?? []) as LessonMediaAsset[];
+  let html = normalizeLessonBodyHtml(bodyHtml);
+
   const placements =
     blueprint.mediaPlacements?.filter(
       (p) => p.moduleIndex === moduleIndex && (p.itemIndex ?? 0) === itemIndex,
     ) ?? [];
-  let html = bodyHtml;
   for (const p of placements) {
     const url = resolveAssetUrl(blueprint, p.assetRef);
     if (url) {
       html = injectImageIntoHtml(html, url, p.caption ?? "Image", p.position);
     }
   }
-  return html;
+
+  return expandStormMediaInLessonHtml(html, assets);
 }
 
 async function createItemFromBlueprint(
@@ -107,13 +115,14 @@ async function createItemFromBlueprint(
   let scenarioId: string | undefined;
 
   if (itemType === "LESSON" && item.lesson) {
+    const assets = (blueprint.sourceAssets ?? []) as LessonMediaAsset[];
     let bodyHtml = applyMediaToLessonHtml(
       item.lesson.bodyHtml,
       blueprint,
       moduleIndex,
       itemIndex,
     );
-    const tiptapDoc = item.lesson.tiptapDoc ?? tiptapDocFromHtml(bodyHtml);
+    const tiptapDoc = item.lesson.tiptapDoc ?? tiptapDocFromHtml(bodyHtml, assets);
     const lc = await prisma.lessonContent.create({
       data: {
         bodyJson: tiptapDoc as Prisma.InputJsonValue,
