@@ -27,6 +27,7 @@ export async function GET(
     mode: session.mode,
     error: session.error,
     allowedItemTypes: session.allowedItemTypes,
+    discoverYoutubeVideos: session.discoverYoutubeVideos,
     blueprintJson: session.blueprintJson,
     assets: session.assets.map((a) => ({
       id: a.id,

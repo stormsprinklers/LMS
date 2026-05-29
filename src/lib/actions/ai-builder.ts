@@ -87,6 +87,7 @@ export async function createAiSession(
     targetModuleId?: string;
     userPrompt?: string;
     allowedItemTypes?: BlueprintItemType[];
+    discoverYoutubeVideos?: boolean;
   },
 ) {
   try {
@@ -103,6 +104,7 @@ export async function createAiSession(
         targetModuleId: options?.targetModuleId ?? null,
         userPrompt: options?.userPrompt?.trim() || null,
         allowedItemTypes: allowed,
+        discoverYoutubeVideos: options?.discoverYoutubeVideos === true,
         status: "collecting",
       },
       include: { assets: { orderBy: { sortOrder: "asc" } } },
@@ -145,6 +147,23 @@ export async function getAiSession(sessionId: string) {
   if (!row) return { error: "Session not found." };
   await requireManageCourse(row.courseId);
   return { session: row };
+}
+
+export async function updateAiSessionDiscoverYoutube(
+  sessionId: string,
+  discoverYoutubeVideos: boolean,
+) {
+  const row = await prisma.aiGenerationSession.findUnique({
+    where: { id: sessionId },
+    select: { courseId: true },
+  });
+  if (!row) return { error: "Session not found." };
+  await requireManageCourse(row.courseId);
+  await prisma.aiGenerationSession.update({
+    where: { id: sessionId },
+    data: { discoverYoutubeVideos },
+  });
+  return { success: true as const };
 }
 
 export async function updateAiSessionPrompt(sessionId: string, userPrompt: string) {
@@ -460,9 +479,11 @@ export async function generateCourseStructure(sessionId: string) {
     },
   });
 
+  const discoverYoutubeVideos = aiSession.discoverYoutubeVideos === true;
   const allowed = constrainAllowedTypesForAssets(
     sessionAllowedTypes(aiSession.allowedItemTypes),
     aiSession.assets,
+    { discoverYoutubeVideos },
   );
 
   try {
@@ -474,6 +495,7 @@ export async function generateCourseStructure(sessionId: string) {
       targetModuleTitle,
       assets: aiSession.assets,
       allowedItemTypes: allowed,
+      discoverYoutubeVideos,
     });
 
 const STRUCTURE_MAX_TOKENS = 8_192;
@@ -526,6 +548,7 @@ const STRUCTURE_MAX_TOKENS = 8_192;
     );
     const validation = validateStructureBlueprint(structure, allowed, {
       videoAssetIds,
+      discoverYoutubeVideos,
     });
 
     const latest = await prisma.aiGenerationSession.findUnique({
@@ -631,6 +654,7 @@ export async function generateNextBlueprintItem(sessionId: string) {
       thread,
       userPrompt: aiSession.userPrompt ?? "",
       allowedItemTypes: allowed,
+      discoverYoutubeVideos: aiSession.discoverYoutubeVideos === true,
     });
 
     const existingSkipped = blueprint.generationSkippedItems ?? [];

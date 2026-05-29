@@ -4,6 +4,7 @@ import {
   type BlueprintItemType,
   formatAllowedTypesForPrompt,
   getCourseStructureGuidance,
+  hasVideoCapability,
 } from "./allowed-item-types";
 import { LESSON_HTML_AUTHORING_GUIDE } from "./lesson-html";
 import { examQuestionCountPrompt } from "./exam-question-counts";
@@ -46,6 +47,7 @@ export function buildGenerationMessages(options: {
   targetModuleTitle?: string;
   assets: AiSourceAsset[];
   allowedItemTypes: BlueprintItemType[];
+  discoverYoutubeVideos?: boolean;
 }) {
   const {
     mode,
@@ -55,10 +57,9 @@ export function buildGenerationMessages(options: {
     targetModuleTitle,
     assets,
     allowedItemTypes,
+    discoverYoutubeVideos,
   } = options;
-  const hasVideoResource = assets.some(
-    (a) => a.kind === "video" && a.includeRecording !== false,
-  );
+  const hasVideoResource = hasVideoCapability(assets, discoverYoutubeVideos);
 
   const assetBlocks: string[] = [];
   let total = 0;
@@ -89,7 +90,9 @@ export function buildGenerationMessages(options: {
   }
 
   const allowedBlock = `ALLOWED ITEM TYPES (use ONLY these — do not add other types): ${formatAllowedTypesForPrompt(allowedItemTypes)}.`;
-  const structureGuidance = getCourseStructureGuidance(allowedItemTypes, mode);
+  const structureGuidance = getCourseStructureGuidance(allowedItemTypes, mode, {
+    discoverYoutubeVideos,
+  });
 
   const modeInstructions =
     mode === "course"
@@ -105,7 +108,7 @@ Reference uploads only via video.sourceAssetRef or mediaPlacements with assetRef
 Prefer practical, safety-aware training content.
 ${LESSON_HTML_AUTHORING_GUIDE}
 ${MEDIA_USAGE_GUIDE}
-${hasVideoResource ? "" : "There is no usable uploaded video resource in this session. Do NOT add VIDEO items to the structure."}
+${hasVideoResource ? "" : "There is no usable video source in this session. Do NOT add VIDEO items to the structure."}
 ${structureGuidance}`;
 
   const user = [
@@ -131,6 +134,7 @@ export function buildStructureGenerationMessages(options: {
   targetModuleTitle?: string;
   assets: AiSourceAsset[];
   allowedItemTypes: BlueprintItemType[];
+  discoverYoutubeVideos?: boolean;
 }) {
   const {
     mode,
@@ -140,10 +144,9 @@ export function buildStructureGenerationMessages(options: {
     targetModuleTitle,
     assets,
     allowedItemTypes,
+    discoverYoutubeVideos,
   } = options;
-  const hasVideoResource = assets.some(
-    (a) => a.kind === "video" && a.includeRecording !== false,
-  );
+  const hasVideoResource = hasVideoCapability(assets, discoverYoutubeVideos);
 
   const base = buildGenerationMessages({
     mode,
@@ -153,10 +156,13 @@ export function buildStructureGenerationMessages(options: {
     targetModuleTitle,
     assets,
     allowedItemTypes,
+    discoverYoutubeVideos,
   });
 
   const allowedBlock = `ALLOWED ITEM TYPES (use ONLY these): ${formatAllowedTypesForPrompt(allowedItemTypes)}.`;
-  const structureGuidance = getCourseStructureGuidance(allowedItemTypes, mode);
+  const structureGuidance = getCourseStructureGuidance(allowedItemTypes, mode, {
+    discoverYoutubeVideos,
+  });
 
   const modeInstructions =
     mode === "course"
@@ -165,12 +171,16 @@ export function buildStructureGenerationMessages(options: {
         ? `Generate exactly one new module${targetModuleTitle ? ` (context: "${targetModuleTitle}")` : ""} with items. Set mode to "module".`
         : `Generate item(s) in a single module. Set mode to "lesson". Target module: ${targetModuleTitle ?? "existing module"}.`;
 
+  const youtubeStructureNote = discoverYoutubeVideos
+    ? " YouTube URLs will be discovered automatically during content generation — VIDEO items do not need linkedSourceAssetRefs."
+    : "";
+
   const system = `You are an instructional designer building training for a field-service / irrigation company.
 Output ONLY valid JSON for the course STRUCTURE (phase 1). Version "1.0".
 ${structureGuidance}
 ${allowedBlock}
 Do NOT include lesson.bodyHtml, exam.questions, video transcripts, or other full content.
-${hasVideoResource ? "" : "No usable uploaded video resource exists. Never add VIDEO items."}
+${hasVideoResource ? `VIDEO items may be included.${youtubeStructureNote}` : "No usable video source exists. Never add VIDEO items."}
 Do NOT include sourceAssets[] in JSON — reference uploads only via linkedSourceAssetRefs (exact asset id strings from source materials).
 Each image or video upload must appear in linkedSourceAssetRefs for at most ONE item in the whole course. Spread photos across different LESSON or VIDEO items; never assign the same id to multiple items.`;
 
@@ -190,12 +200,17 @@ Each image or video upload must appear in linkedSourceAssetRefs for at most ONE 
   return { system, user };
 }
 
-function contentInstructionsForType(type: BlueprintItemType): string {
+function contentInstructionsForType(
+  type: BlueprintItemType,
+  options?: { discoverYoutubeVideos?: boolean },
+): string {
   switch (type) {
     case "LESSON":
       return `LESSON: ${LESSON_HTML_AUTHORING_GUIDE} Use at most one <storm-media> marker only if this item is assigned a media asset.`;
     case "VIDEO":
-      return "VIDEO: sourceAssetRef and/or youtubeUrl, transcript summary if no recording. Use only the upload assigned to this item.";
+      return options?.discoverYoutubeVideos
+        ? "VIDEO: youtubeUrl and a short transcript summary (YouTube will be selected automatically if not specified)."
+        : "VIDEO: sourceAssetRef and/or youtubeUrl, transcript summary if no recording. Use only the upload assigned to this item.";
     case "QUIZ":
       return `${examQuestionCountPrompt("QUIZ")} Every MC/MS/TRUE_FALSE question needs options with isCorrect true on at least one option (exactly one for MC/TRUE_FALSE).`;
     case "EXAM":
@@ -217,6 +232,7 @@ export function buildItemContentUserMessage(options: {
   allowedItemTypes: BlueprintItemType[];
   usedMediaAssetIds?: Set<string>;
   assignedMediaAssetId?: string | null;
+  discoverYoutubeVideos?: boolean;
 }) {
   const {
     blueprint,
@@ -263,7 +279,12 @@ export function buildItemContentUserMessage(options: {
     `Return JSON: { "item": { ...complete item with ${item.type} content filled in... } }`,
     `Keep type, title, outline, track, and linkedSourceAssetRefs unless you must adjust them.`,
     item.type === "LESSON" ? LESSON_HTML_AUTHORING_GUIDE : "",
-    contentInstructionsForType(item.type as BlueprintItemType),
+    contentInstructionsForType(item.type as BlueprintItemType, {
+      discoverYoutubeVideos: options.discoverYoutubeVideos,
+    }),
+    item.type === "VIDEO" && options.discoverYoutubeVideos
+      ? "A related public YouTube video will be attached automatically when you omit youtubeUrl."
+      : "",
     options.allowedItemTypes.includes(item.type as BlueprintItemType)
       ? ""
       : `WARNING: type ${item.type} was not in allowed list; still generate valid content for this type.`,

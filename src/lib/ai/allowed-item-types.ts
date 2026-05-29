@@ -55,19 +55,28 @@ export function hasUsableVideoAsset(assets: AssetLike[]): boolean {
   );
 }
 
+export function hasVideoCapability(
+  assets: AssetLike[],
+  discoverYoutubeVideos?: boolean,
+): boolean {
+  return hasUsableVideoAsset(assets) || discoverYoutubeVideos === true;
+}
+
 /** Remove VIDEO when no video resource is available in this AI session. */
 export function constrainAllowedTypesForAssets(
   allowed: BlueprintItemType[],
   assets: AssetLike[],
+  options?: { discoverYoutubeVideos?: boolean },
 ): BlueprintItemType[] {
   if (!allowed.includes("VIDEO")) return allowed;
-  if (hasUsableVideoAsset(assets)) return allowed;
+  if (hasVideoCapability(assets, options?.discoverYoutubeVideos)) return allowed;
   return allowed.filter((t) => t !== "VIDEO");
 }
 
 export function getCourseStructureGuidance(
   allowed: BlueprintItemType[],
   mode: AiGenerationMode,
+  options?: { discoverYoutubeVideos?: boolean },
 ): string {
   const lines: string[] = [
     "CURRICULUM STRUCTURE (preferred pattern — use only allowed types above):",
@@ -83,7 +92,9 @@ export function getCourseStructureGuidance(
   }
   if (allowed.includes("VIDEO")) {
     lines.push(
-      "- Use VIDEO for demos or source recordings; pair with a nearby LESSON or QUIZ when possible.",
+      options?.discoverYoutubeVideos
+        ? "- Use VIDEO for demonstrations; related YouTube videos will be found automatically during content generation (no upload required). Pair with a nearby LESSON or QUIZ when possible."
+        : "- Use VIDEO for demos or source recordings; pair with a nearby LESSON or QUIZ when possible.",
     );
   }
   if (allowed.includes("EXAM")) {

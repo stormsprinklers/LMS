@@ -284,6 +284,7 @@ model AiGenerationSession {
   contentItemCursor   Int               @default(0)
   structureApproved   Boolean           @default(false)
   allowedItemTypes    Json              @default("[\"LESSON\",\"QUIZ\",\"EXAM\",\"VIDEO\"]")
+  discoverYoutubeVideos Boolean         @default(false)
   error               String?           @db.Text
   createdAt           DateTime          @default(now())
   updatedAt           DateTime          @updatedAt

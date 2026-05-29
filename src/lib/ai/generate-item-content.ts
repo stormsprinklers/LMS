@@ -21,6 +21,7 @@ import {
   MEDIA_USAGE_GUIDE,
   pickVisualMediaForItem,
 } from "./media-asset-usage";
+import { discoverYoutubeVideoForItem } from "./discover-youtube-video";
 import { compactItemSummary, repairGeneratedItemCandidate } from "./repair-item-content";
 import type { ItemContentValidationContext } from "./repair-item-content";
 import {
@@ -61,8 +62,10 @@ function buildInitialThread(options: {
   userPrompt: string;
   allowedItemTypes: BlueprintItemType[];
   assetIds: string[];
+  discoverYoutubeVideos?: boolean;
 }): GenerationChatMessage[] {
-  const { blueprint, userPrompt, allowedItemTypes, assetIds } = options;
+  const { blueprint, userPrompt, allowedItemTypes, assetIds, discoverYoutubeVideos } =
+    options;
   const assetIdList =
     assetIds.length > 0
       ? `Valid sourceAssetRef ids (copy exactly): ${assetIds.join(", ")}.`
@@ -74,7 +77,7 @@ function buildInitialThread(options: {
       content: `You are an instructional designer writing one section of a training course at a time.
 Output JSON with a single "item" object. Maintain consistency with the approved course structure and prior item summaries in the conversation.
 Allowed item types: ${formatAllowedTypesForPrompt(allowedItemTypes)}.
-${getCourseStructureGuidance(allowedItemTypes, blueprint.mode)}
+${getCourseStructureGuidance(allowedItemTypes, blueprint.mode, { discoverYoutubeVideos })}
 ${assetIdList}
 ${LESSON_HTML_AUTHORING_GUIDE}
 ${MEDIA_USAGE_GUIDE}
@@ -238,6 +241,100 @@ export type GenerateItemContentResult =
       attempts: number;
     };
 
+async function generateDiscoveredVideoItem(options: {
+  skeleton: BlueprintItem;
+  blueprint: CourseBlueprint;
+  moduleIndex: number;
+  itemIndex: number;
+  userPrompt: string;
+  thread: GenerationChatMessage[];
+  userMessage: string;
+  itemContentCtx: ItemContentValidationContext;
+}): Promise<GenerateItemContentResult> {
+  const {
+    skeleton,
+    blueprint,
+    moduleIndex,
+    itemIndex,
+    userPrompt,
+    thread,
+    userMessage,
+    itemContentCtx,
+  } = options;
+
+  const mod = blueprint.modules[moduleIndex];
+  if (!mod) {
+    return {
+      ok: false,
+      skipped: true,
+      reason: "Module not found.",
+      thread,
+      attempts: 0,
+    };
+  }
+
+  const discovered = await discoverYoutubeVideoForItem({
+    courseTitle: blueprint.course.title,
+    moduleTitle: mod.title,
+    itemTitle: skeleton.title,
+    outline: skeleton.outline,
+    userPrompt,
+  });
+
+  if (!discovered) {
+    return {
+      ok: false,
+      skipped: true,
+      reason:
+        "Could not find a related YouTube video. Add YOUTUBE_API_KEY for search, or paste a YouTube link manually.",
+      thread,
+      attempts: 1,
+    };
+  }
+
+  const candidate = repairGeneratedItemCandidate(
+    skeleton,
+    {
+      video: {
+        youtubeUrl: discovered.url,
+        includeRecording: false,
+        transcript: discovered.transcript,
+      },
+    },
+    itemContentCtx,
+  );
+
+  const validation = validateGeneratedItemContent(
+    skeleton,
+    candidate,
+    itemContentCtx,
+  );
+
+  if (!validation.ok) {
+    return {
+      ok: false,
+      skipped: true,
+      reason: validation.issues.join(" ") || "Invalid video content.",
+      thread,
+      attempts: 1,
+    };
+  }
+
+  return {
+    ok: true,
+    item: validation.item,
+    thread: [
+      ...thread,
+      { role: "user", content: userMessage },
+      {
+        role: "assistant",
+        content: compactItemSummary(validation.item),
+      },
+    ],
+    attempts: 1,
+  };
+}
+
 export async function generateItemContent(options: {
   blueprint: CourseBlueprint;
   moduleIndex: number;
@@ -246,9 +343,17 @@ export async function generateItemContent(options: {
   thread: GenerationChatMessage[];
   userPrompt: string;
   allowedItemTypes: BlueprintItemType[];
+  discoverYoutubeVideos?: boolean;
 }): Promise<GenerateItemContentResult> {
-  const { blueprint, moduleIndex, itemIndex, assets, userPrompt, allowedItemTypes } =
-    options;
+  const {
+    blueprint,
+    moduleIndex,
+    itemIndex,
+    assets,
+    userPrompt,
+    allowedItemTypes,
+    discoverYoutubeVideos,
+  } = options;
 
   const skeleton = blueprint.modules[moduleIndex]?.items[itemIndex];
   if (!skeleton) {
@@ -288,6 +393,7 @@ export async function generateItemContent(options: {
           userPrompt,
           allowedItemTypes,
           assetIds,
+          discoverYoutubeVideos,
         });
 
   const userMessage = buildItemContentUserMessage({
@@ -298,7 +404,29 @@ export async function generateItemContent(options: {
     allowedItemTypes,
     usedMediaAssetIds,
     assignedMediaAssetId,
+    discoverYoutubeVideos,
   });
+
+  const hasUploadForVideo =
+    !!assignedMediaAssetId ||
+    (skeleton.linkedSourceAssetRefs ?? []).some((id) => assetIdSet.has(id));
+
+  if (
+    skeleton.type === "VIDEO" &&
+    discoverYoutubeVideos &&
+    !hasUploadForVideo
+  ) {
+    return generateDiscoveredVideoItem({
+      skeleton,
+      blueprint,
+      moduleIndex,
+      itemIndex,
+      userPrompt,
+      thread: persistedThread,
+      userMessage,
+      itemContentCtx,
+    });
+  }
 
   if (skeleton.type === "QUIZ" || skeleton.type === "EXAM") {
     return generateAssessmentItemContent({

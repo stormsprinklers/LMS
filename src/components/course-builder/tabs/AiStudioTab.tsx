@@ -16,6 +16,7 @@ import {
   reworkBlueprintSectionAction,
   updateAiSessionPrompt,
   updateAiSessionAllowedItemTypes,
+  updateAiSessionDiscoverYoutube,
   uploadAiSource,
   deleteAiSourceAsset,
   attachLibraryAssetsToSession,
@@ -107,6 +108,7 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
   const [allowedItemTypes, setAllowedItemTypes] = useState<BlueprintItemType[]>([
     ...DEFAULT_ALLOWED_ITEM_TYPES,
   ]);
+  const [discoverYoutubeVideos, setDiscoverYoutubeVideos] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [assets, setAssets] = useState<
     {
@@ -156,6 +158,9 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
     setAssets(data.assets ?? []);
     if (data.allowedItemTypes) {
       setAllowedItemTypes(parseAllowedItemTypes(data.allowedItemTypes));
+    }
+    if (typeof data.discoverYoutubeVideos === "boolean") {
+      setDiscoverYoutubeVideos(data.discoverYoutubeVideos);
     }
     if (data.blueprintJson) {
       const bp = data.blueprintJson as CourseBlueprint;
@@ -310,6 +315,8 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
           mode !== "course" && targetModuleId ? targetModuleId : undefined,
         userPrompt,
         allowedItemTypes,
+        discoverYoutubeVideos:
+          discoverYoutubeVideos && allowedItemTypes.includes("VIDEO"),
       });
       if (result.error) {
         setError(result.error);
@@ -482,6 +489,10 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
     setError("");
     setNotice("");
     await updateAiSessionPrompt(sessionId, userPrompt);
+    await updateAiSessionDiscoverYoutube(
+      sessionId,
+      discoverYoutubeVideos && allowedItemTypes.includes("VIDEO"),
+    );
     const typesResult = await updateAiSessionAllowedItemTypes(
       sessionId,
       allowedItemTypes,
@@ -720,7 +731,35 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
             </label>
           )}
 
-          <ItemTypePicker value={allowedItemTypes} onChange={setAllowedItemTypes} />
+          <ItemTypePicker
+            value={allowedItemTypes}
+            onChange={(types) => {
+              setAllowedItemTypes(types);
+              if (!types.includes("VIDEO")) {
+                setDiscoverYoutubeVideos(false);
+              }
+            }}
+          />
+
+          {allowedItemTypes.includes("VIDEO") && (
+            <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-storm-light-blue/50 bg-storm-light-grey/25 p-3 text-sm text-storm-navy">
+              <input
+                type="checkbox"
+                className="mt-1 h-4 w-4 shrink-0"
+                checked={discoverYoutubeVideos}
+                onChange={(e) => setDiscoverYoutubeVideos(e.target.checked)}
+              />
+              <span>
+                <span className="font-medium">Find related YouTube videos automatically</span>
+                <span className="mt-1 block text-xs text-storm-navy/65">
+                  AI will search for relevant public YouTube videos for each video lesson
+                  instead of requiring you to upload or paste links. Optional{" "}
+                  <code className="text-[11px]">YOUTUBE_API_KEY</code> improves search
+                  quality.
+                </span>
+              </span>
+            </label>
+          )}
 
           <label className="block text-sm">
             <span className="font-medium text-storm-navy">Instructions (optional)</span>

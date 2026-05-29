@@ -10,7 +10,7 @@ export type BlueprintIssue = {
 export function validateStructureBlueprint(
   structure: CourseStructure,
   allowed: BlueprintItemType[] = ["LESSON", "QUIZ", "EXAM", "VIDEO"],
-  options?: { videoAssetIds?: Set<string> },
+  options?: { videoAssetIds?: Set<string>; discoverYoutubeVideos?: boolean },
 ): {
   ok: boolean;
   issues: BlueprintIssue[];
@@ -26,7 +26,7 @@ export function validateStructureBlueprint(
 
   structure.modules.forEach((mod, mi) => {
     mod.items.forEach((item, ii) => {
-      if (item.type === "VIDEO") {
+      if (item.type === "VIDEO" && !options?.discoverYoutubeVideos) {
         const linked = item.linkedSourceAssetRefs ?? [];
         const videoIds = options?.videoAssetIds ?? new Set<string>();
         if (videoIds.size === 0) {
