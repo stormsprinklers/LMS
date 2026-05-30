@@ -2,7 +2,12 @@ import type { AiSourceAsset } from "@prisma/client";
 import type { BlueprintItem, CourseBlueprint } from "./blueprint-schema";
 import { buildItemContentUserMessage } from "./build-prompt";
 import type { GenerationChatMessage } from "./generation-thread";
-import { AI_GENERATION_MODEL, requireOpenAI } from "./openai-client";
+import {
+  AI_GENERATION_MODEL,
+  AI_ITEM_CONTENT_MAX_TOKENS,
+  requireOpenAI,
+} from "./openai-client";
+import { createChatCompletionWithRetry } from "./openai-completions";
 import {
   type BlueprintItemType,
   formatAllowedTypesForPrompt,
@@ -30,8 +35,6 @@ import {
   MAX_VALIDATION_ATTEMPTS,
   validateGeneratedItemContent,
 } from "./validate-item-content";
-
-const ITEM_CONTENT_MAX_TOKENS = 12_000;
 
 const itemContentJsonSchema = {
   type: "object",
@@ -101,13 +104,13 @@ Return valid JSON only. LESSON items need lesson.bodyHtml with <h2> titles and <
             items: m.items.map((i) => ({
               type: i.type,
               title: i.title,
-              outline: i.outline,
+              outline: i.outline?.slice(0, 280),
               linkedSourceAssetRefs: i.linkedSourceAssetRefs,
             })),
           })),
         },
         null,
-        2,
+        0,
       )}`,
     },
     {
@@ -122,10 +125,10 @@ async function requestItemJson(
   thread: GenerationChatMessage[],
 ): Promise<{ raw: string; parsed: unknown; truncated: boolean }> {
   const openai = requireOpenAI();
-  const completion = await openai.chat.completions.create({
+  const completion = await createChatCompletionWithRetry(openai, {
     model: AI_GENERATION_MODEL,
     messages: thread.map((m) => ({ role: m.role, content: m.content })),
-    max_tokens: ITEM_CONTENT_MAX_TOKENS,
+    max_tokens: AI_ITEM_CONTENT_MAX_TOKENS,
     response_format: {
       type: "json_schema",
       json_schema: {

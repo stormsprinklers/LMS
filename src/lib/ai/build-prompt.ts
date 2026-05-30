@@ -13,8 +13,11 @@ import {
   MEDIA_USAGE_GUIDE,
 } from "./media-asset-usage";
 
-const MAX_CHARS_PER_ASSET = 12_000;
-const MAX_TOTAL_CONTEXT = 80_000;
+const MAX_CHARS_PER_ASSET = 8_000;
+const MAX_TOTAL_CONTEXT = 45_000;
+/** Tighter limits for structure-only phase (summaries, not full PDF text). */
+const MAX_CHARS_PER_ASSET_STRUCTURE = 4_000;
+const MAX_TOTAL_CONTEXT_STRUCTURE = 24_000;
 
 function truncate(text: string, max: number): string {
   if (text.length <= max) return text;
@@ -49,6 +52,8 @@ export function buildGenerationMessages(options: {
   allowedItemTypes: BlueprintItemType[];
   discoverYoutubeVideos?: boolean;
   discoverImages?: boolean;
+  /** Use smaller context budget and prefer summaries (structure phase). */
+  structurePhase?: boolean;
 }) {
   const {
     mode,
@@ -60,21 +65,27 @@ export function buildGenerationMessages(options: {
     allowedItemTypes,
     discoverYoutubeVideos,
     discoverImages,
+    structurePhase = false,
   } = options;
   const hasVideoResource = hasVideoCapability(assets, discoverYoutubeVideos);
+  const maxPerAsset = structurePhase ? MAX_CHARS_PER_ASSET_STRUCTURE : MAX_CHARS_PER_ASSET;
+  const maxTotal = structurePhase ? MAX_TOTAL_CONTEXT_STRUCTURE : MAX_TOTAL_CONTEXT;
 
   const assetBlocks: string[] = [];
   let total = 0;
   for (const a of assets) {
-    const body =
-      a.summary?.trim() ||
-      a.transcript?.trim() ||
-      a.extractedText?.trim() ||
-      (a.kind === "embed" || a.kind === "image" ? a.blobUrl : "") ||
-      "";
+    const body = structurePhase
+      ? a.summary?.trim() ||
+        a.placementHint?.trim() ||
+        truncate(a.transcript?.trim() || a.extractedText?.trim() || "", maxPerAsset)
+      : a.summary?.trim() ||
+        a.transcript?.trim() ||
+        a.extractedText?.trim() ||
+        (a.kind === "embed" || a.kind === "image" ? a.blobUrl : "") ||
+        "";
     if (!body && !a.placementHint) continue;
-    const chunk = truncate(body, MAX_CHARS_PER_ASSET);
-    if (total + chunk.length > MAX_TOTAL_CONTEXT) break;
+    const chunk = truncate(body, maxPerAsset);
+    if (total + chunk.length > maxTotal) break;
     total += chunk.length;
     assetBlocks.push(
       [
@@ -163,6 +174,7 @@ export function buildStructureGenerationMessages(options: {
     allowedItemTypes,
     discoverYoutubeVideos,
     discoverImages,
+    structurePhase: true,
   });
 
   const allowedBlock = `ALLOWED ITEM TYPES (use ONLY these): ${formatAllowedTypesForPrompt(allowedItemTypes)}.`;
@@ -282,7 +294,13 @@ export function buildItemContentUserMessage(options: {
   return [
     `Generate full content for this curriculum item only.`,
     `Module ${moduleIndex + 1}: ${mod.title}`,
-    `Item: ${JSON.stringify(item, null, 2)}`,
+    `Item: ${JSON.stringify({
+      type: item.type,
+      title: item.title,
+      outline: item.outline,
+      track: item.track,
+      linkedSourceAssetRefs: item.linkedSourceAssetRefs,
+    })}`,
     allAssetIds
       ? `Valid sourceAssetRef ids (use exactly one of these for VIDEO): ${allAssetIds}`
       : "",

@@ -5,6 +5,7 @@ import {
 } from "./blueprint-schema";
 import { buildReworkMessages } from "./build-prompt";
 import { AI_GENERATION_MODEL, requireOpenAI } from "./openai-client";
+import { createChatCompletionWithRetry } from "./openai-completions";
 import { courseBlueprintJsonSchema } from "./blueprint-schema";
 import { validateBlueprint } from "./validate-blueprint";
 
@@ -22,7 +23,7 @@ export async function reworkBlueprintSection(
     itemIndex,
   );
 
-  const completion = await openai.chat.completions.create({
+  const completion = await createChatCompletionWithRetry(openai, {
     model: AI_GENERATION_MODEL,
     messages: [
       { role: "system", content: system },

@@ -14,6 +14,7 @@ import {
   createAiSession,
   generateCourseStructure,
   generateNextBlueprintItem,
+  retryBlueprintItemContent,
   processAiSession,
   reworkBlueprintSectionAction,
   updateAiSessionPrompt,
@@ -170,6 +171,10 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
   const [selectedModule, setSelectedModule] = useState<number | null>(0);
   const [selectedItem, setSelectedItem] = useState<number | null>(null);
   const [reworkInstruction, setReworkInstruction] = useState("");
+  const [retryingItem, setRetryingItem] = useState<{
+    moduleIndex: number;
+    itemIndex: number;
+  } | null>(null);
   const [contentProgress, setContentProgress] = useState<{
     current: number;
     total: number;
@@ -683,6 +688,33 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
     router.push(`${pathname}?tab=curriculum`);
   }
 
+  async function runRetryItem(moduleIndex: number, itemIndex: number) {
+    if (!sessionId) return;
+    setRetryingItem({ moduleIndex, itemIndex });
+    setError("");
+    setNotice("");
+    try {
+      const result = await retryBlueprintItemContent(sessionId, moduleIndex, itemIndex);
+      if (result.error && !result.ok) {
+        setError(result.error);
+      }
+      if (result.blueprint) {
+        setBlueprint(result.blueprint);
+        setIssues(validateBlueprint(result.blueprint).issues);
+        setGenerationWarnings(warningsFromBlueprint(result.blueprint));
+        const title =
+          result.blueprint.modules[moduleIndex]?.items[itemIndex]?.title ?? "Item";
+        if (result.ok) {
+          setNotice(`Regenerated "${title}" successfully.`);
+        } else if (result.skippedItem?.reason) {
+          setError(result.skippedItem.reason);
+        }
+      }
+    } finally {
+      setRetryingItem(null);
+    }
+  }
+
   async function runApply() {
     if (!sessionId) return;
     setBusy(true);
@@ -835,7 +867,7 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
           </p>
           <p className="mt-1 text-amber-900/90">
             AI could not finish these items. Each entry includes the reason. You can
-            rework them below or fix them in the course builder after apply.
+            rework them below, use Try again on each item, or fix them in the course builder after apply.
           </p>
           <ul className="mt-2 max-h-48 space-y-2 overflow-y-auto">
             {generationWarnings.map((w) => (
@@ -1428,6 +1460,9 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
               setSelectedModule(mi);
               setSelectedItem(ii);
             }}
+            onRetryItem={(mi, ii) => void runRetryItem(mi, ii)}
+            retryingItem={retryingItem}
+            retryDisabled={busy}
           />
 
           <div className="rounded-xl border bg-white p-4">

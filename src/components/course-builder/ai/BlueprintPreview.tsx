@@ -2,6 +2,7 @@
 
 import { LessonHtmlContent } from "@/components/lesson/LessonHtmlContent";
 import type { CourseBlueprint } from "@/lib/ai/blueprint-schema";
+import { isBlueprintItemIncomplete } from "@/lib/ai/blueprint-items";
 import type { BlueprintIssue } from "@/lib/ai/validate-blueprint";
 import type { CourseItemType } from "@prisma/client";
 import { YouTubeIframe } from "@/components/video/YouTubeIframe";
@@ -12,9 +13,7 @@ function isBlueprintItemSkipped(
   moduleIndex: number,
   itemIndex: number,
 ): boolean {
-  return (blueprint.generationSkippedItems ?? []).some(
-    (s) => s.moduleIndex === moduleIndex && s.itemIndex === itemIndex,
-  );
+  return isBlueprintItemIncomplete(blueprint, moduleIndex, itemIndex);
 }
 
 export function BlueprintPreview({
@@ -25,6 +24,9 @@ export function BlueprintPreview({
   onSelectModule,
   onSelectItem,
   structureOnly = false,
+  onRetryItem,
+  retryingItem,
+  retryDisabled = false,
 }: {
   blueprint: CourseBlueprint;
   issues: BlueprintIssue[];
@@ -33,6 +35,9 @@ export function BlueprintPreview({
   onSelectModule: (index: number) => void;
   onSelectItem: (moduleIndex: number, itemIndex: number) => void;
   structureOnly?: boolean;
+  onRetryItem?: (moduleIndex: number, itemIndex: number) => void;
+  retryingItem?: { moduleIndex: number; itemIndex: number } | null;
+  retryDisabled?: boolean;
 }) {
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
@@ -125,6 +130,9 @@ export function BlueprintPreview({
               moduleIndex={selectedModule}
               itemIndex={selectedItem}
               structureOnly={structureOnly}
+              onRetryItem={onRetryItem}
+              retryingItem={retryingItem}
+              retryDisabled={retryDisabled}
             />
           )}
         </div>
@@ -138,11 +146,17 @@ function PreviewItemDetail({
   moduleIndex,
   itemIndex,
   structureOnly,
+  onRetryItem,
+  retryingItem,
+  retryDisabled,
 }: {
   blueprint: CourseBlueprint;
   moduleIndex: number;
   itemIndex: number | null;
   structureOnly?: boolean;
+  onRetryItem?: (moduleIndex: number, itemIndex: number) => void;
+  retryingItem?: { moduleIndex: number; itemIndex: number } | null;
+  retryDisabled?: boolean;
 }) {
   const mod = blueprint.modules[moduleIndex];
   if (!mod) return null;
@@ -159,10 +173,13 @@ function PreviewItemDetail({
   const item = mod.items[itemIndex];
   if (!item) return null;
 
-  const skipped = isBlueprintItemSkipped(blueprint, moduleIndex, itemIndex);
+  const skipped = isBlueprintItemIncomplete(blueprint, moduleIndex, itemIndex);
   const skipRecord = blueprint.generationSkippedItems?.find(
     (s) => s.moduleIndex === moduleIndex && s.itemIndex === itemIndex,
   );
+  const isRetrying =
+    retryingItem?.moduleIndex === moduleIndex &&
+    retryingItem?.itemIndex === itemIndex;
 
   return (
     <div className="mt-3 text-sm text-storm-navy/80">
@@ -174,8 +191,18 @@ function PreviewItemDetail({
           <p className="font-medium">Content not generated</p>
           <p className="mt-1 text-xs text-amber-900/90">
             {skipRecord?.reason ??
-              "AI could not write this item. Use Rework below or edit after apply."}
+              "AI could not write this item. Try again or edit after apply."}
           </p>
+          {onRetryItem && !structureOnly && (
+            <button
+              type="button"
+              disabled={retryDisabled || isRetrying}
+              onClick={() => onRetryItem(moduleIndex, itemIndex)}
+              className="mt-3 min-h-9 rounded-lg bg-storm-medium-blue px-4 text-xs font-semibold text-white disabled:opacity-50"
+            >
+              {isRetrying ? "Trying again…" : "Try again"}
+            </button>
+          )}
         </div>
       )}
       {item.outline && (structureOnly || !item.lesson?.bodyHtml?.trim()) && (

@@ -18,13 +18,16 @@ import { buildStructureGenerationMessages, assetsToBlueprintRefs } from "@/lib/a
 import { processAllSessionAssets } from "@/lib/ai/process-sources";
 import { reworkBlueprintSection } from "@/lib/ai/rework";
 import { importCourseBlueprint } from "@/lib/ai/import-blueprint";
-import { requireOpenAI, AI_GENERATION_MODEL } from "@/lib/ai/openai-client";
+import { requireOpenAI, AI_GENERATION_MODEL, AI_STRUCTURE_MAX_TOKENS } from "@/lib/ai/openai-client";
+import { createChatCompletionWithRetry } from "@/lib/ai/openai-completions";
 import { isYouTubeUrl } from "@/lib/video/youtube";
 import { flattenBlueprintItems } from "@/lib/ai/blueprint-items";
 import {
   auditIncompleteBlueprintItems,
   itemNeedsContent,
   missingContentReason,
+  stripItemToSkeleton,
+  isBlueprintItemIncomplete,
 } from "@/lib/ai/blueprint-items";
 import {
   distributeVisualMediaAcrossBlueprint,
@@ -647,15 +650,13 @@ export async function generateCourseStructure(sessionId: string) {
       discoverImages,
     });
 
-const STRUCTURE_MAX_TOKENS = 8_192;
-
-    const completion = await openai.chat.completions.create({
+    const completion = await createChatCompletionWithRetry(openai, {
       model: AI_GENERATION_MODEL,
       messages: [
         { role: "system", content: system },
         { role: "user", content: user },
       ],
-      max_tokens: STRUCTURE_MAX_TOKENS,
+      max_tokens: AI_STRUCTURE_MAX_TOKENS,
       response_format: {
         type: "json_schema",
         json_schema: {
@@ -787,6 +788,170 @@ export async function resumeContentGeneration(sessionId: string) {
   };
 }
 
+type SkippedItemRecord = {
+  moduleIndex: number;
+  itemIndex: number;
+  title: string;
+  moduleTitle: string;
+  reason: string;
+};
+
+type GenerateItemAtResult =
+  | { error: string }
+  | {
+      ok: boolean;
+      nextBlueprint: CourseBlueprint;
+      thread: object[];
+      skippedItem?: SkippedItemRecord;
+      assetsForSession?: Awaited<ReturnType<typeof loadSessionAssets>>;
+    };
+
+async function generateBlueprintItemAt(
+  sessionId: string,
+  aiSession: NonNullable<Awaited<ReturnType<typeof loadSessionForGeneration>>>,
+  blueprintInput: CourseBlueprint,
+  moduleIndex: number,
+  itemIndex: number,
+  options?: { resetToSkeleton?: boolean },
+): Promise<GenerateItemAtResult> {
+  const allowed = sessionAllowedTypes(aiSession.allowedItemTypes);
+  let blueprint = filterBlueprintByAllowedTypes(
+    enrichBlueprintWithAssets(blueprintInput, aiSession.assets),
+    allowed,
+  );
+
+  const mod = blueprint.modules[moduleIndex];
+  const item = mod?.items[itemIndex];
+  if (!item || !mod) {
+    return { error: "Item not found in blueprint." };
+  }
+
+  if (options?.resetToSkeleton) {
+    blueprint = {
+      ...blueprint,
+      modules: blueprint.modules.map((m, mi) =>
+        mi !== moduleIndex
+          ? m
+          : {
+              ...m,
+              items: m.items.map((it, ii) =>
+                ii !== itemIndex ? it : stripItemToSkeleton(it),
+              ),
+            },
+      ),
+    };
+  }
+
+  let assetsForGen = aiSession.assets;
+  const moduleTitle = mod.title;
+  const itemTitle = blueprint.modules[moduleIndex]!.items[itemIndex]!.title;
+
+  if (aiSession.discoverImages === true && item.type === "LESSON") {
+    const withImage = await ensureDiscoveredImageForLesson({
+      sessionId,
+      blueprint,
+      moduleIndex,
+      itemIndex,
+      assets: assetsForGen,
+      courseTitle: aiSession.course.title,
+      moduleTitle,
+      userPrompt: aiSession.userPrompt ?? "",
+    });
+    blueprint = withImage.blueprint;
+    assetsForGen = withImage.assets;
+  }
+
+  const thread = parseGenerationMessages(aiSession.generationMessages);
+  const generation = await generateItemContent({
+    blueprint,
+    moduleIndex,
+    itemIndex,
+    assets: assetsForGen,
+    thread,
+    userPrompt: aiSession.userPrompt ?? "",
+    allowedItemTypes: allowed,
+    discoverYoutubeVideos: aiSession.discoverYoutubeVideos === true,
+    discoverImages: aiSession.discoverImages === true,
+  });
+
+  const existingSkipped = blueprint.generationSkippedItems ?? [];
+  let nextBlueprint: CourseBlueprint = blueprint;
+  let skippedThisItem: SkippedItemRecord | undefined;
+
+  if (generation.ok) {
+    nextBlueprint = {
+      ...blueprint,
+      modules: blueprint.modules.map((m, mi) =>
+        mi !== moduleIndex
+          ? m
+          : {
+              ...m,
+              items: m.items.map((it, ii) =>
+                ii !== itemIndex ? it : generation.item,
+              ),
+            },
+      ),
+    };
+
+    if (itemNeedsContent(generation.item)) {
+      skippedThisItem = {
+        moduleIndex,
+        itemIndex,
+        title: itemTitle,
+        moduleTitle,
+        reason: missingContentReason(generation.item),
+      };
+      nextBlueprint = {
+        ...nextBlueprint,
+        generationSkippedItems: [
+          ...existingSkipped.filter(
+            (s) => !(s.moduleIndex === moduleIndex && s.itemIndex === itemIndex),
+          ),
+          skippedThisItem,
+        ],
+      };
+    } else {
+      nextBlueprint = {
+        ...nextBlueprint,
+        generationSkippedItems: existingSkipped.filter(
+          (s) => !(s.moduleIndex === moduleIndex && s.itemIndex === itemIndex),
+        ),
+      };
+      if (!nextBlueprint.generationSkippedItems?.length) {
+        delete nextBlueprint.generationSkippedItems;
+      }
+    }
+  } else {
+    skippedThisItem = {
+      moduleIndex,
+      itemIndex,
+      title: itemTitle,
+      moduleTitle,
+      reason:
+        generation.reason?.trim() ||
+        "Content generation failed after multiple attempts.",
+    };
+    nextBlueprint = {
+      ...blueprint,
+      generationSkippedItems: [
+        ...existingSkipped.filter(
+          (s) => !(s.moduleIndex === moduleIndex && s.itemIndex === itemIndex),
+        ),
+        skippedThisItem,
+      ],
+    };
+  }
+
+  return {
+    ok: generation.ok,
+    nextBlueprint: enrichBlueprintWithAssets(nextBlueprint, assetsForGen),
+    thread: generation.thread as object[],
+    skippedItem: skippedThisItem,
+    assetsForSession:
+      assetsForGen.length !== aiSession.assets.length ? assetsForGen : undefined,
+  };
+}
+
 export async function generateNextBlueprintItem(sessionId: string) {
   const aiSession = await loadSessionForGeneration(sessionId);
   if (!aiSession?.blueprintJson) return { error: "No blueprint found." };
@@ -834,114 +999,26 @@ export async function generateNextBlueprintItem(sessionId: string) {
   const { moduleIndex, itemIndex, item, moduleTitle } = flat[cursor];
 
   try {
-    let assetsForGen = aiSession.assets;
-    if (aiSession.discoverImages === true && item.type === "LESSON") {
-      const withImage = await ensureDiscoveredImageForLesson({
-        sessionId,
-        blueprint,
-        moduleIndex,
-        itemIndex,
-        assets: assetsForGen,
-        courseTitle: aiSession.course.title,
-        moduleTitle,
-        userPrompt: aiSession.userPrompt ?? "",
-      });
-      blueprint = withImage.blueprint;
-      assetsForGen = withImage.assets;
-      if (assetsForGen.length !== aiSession.assets.length) {
-        await prisma.aiGenerationSession.update({
-          where: { id: sessionId },
-          data: { blueprintJson: blueprint as object },
-        });
-      }
-    }
-
-    const thread = parseGenerationMessages(aiSession.generationMessages);
-    const generation = await generateItemContent({
+    const generated = await generateBlueprintItemAt(
+      sessionId,
+      aiSession,
       blueprint,
       moduleIndex,
       itemIndex,
-      assets: assetsForGen,
-      thread,
-      userPrompt: aiSession.userPrompt ?? "",
-      allowedItemTypes: allowed,
-      discoverYoutubeVideos: aiSession.discoverYoutubeVideos === true,
-      discoverImages: aiSession.discoverImages === true,
-    });
-
-    const existingSkipped = blueprint.generationSkippedItems ?? [];
-    let nextBlueprint: CourseBlueprint = blueprint;
-    let skippedThisItem:
-      | {
-          moduleIndex: number;
-          itemIndex: number;
-          title: string;
-          moduleTitle: string;
-          reason: string;
-        }
-      | undefined;
-
-    if (generation.ok) {
-      nextBlueprint = {
-        ...blueprint,
-        modules: blueprint.modules.map((mod, mi) =>
-          mi !== moduleIndex
-            ? mod
-            : {
-                ...mod,
-                items: mod.items.map((it, ii) =>
-                  ii !== itemIndex ? it : generation.item,
-                ),
-              },
-        ),
-      };
-
-      if (itemNeedsContent(generation.item)) {
-        skippedThisItem = {
-          moduleIndex,
-          itemIndex,
-          title: item.title,
-          moduleTitle,
-          reason: missingContentReason(generation.item),
-        };
-        nextBlueprint = {
-          ...nextBlueprint,
-          generationSkippedItems: [
-            ...existingSkipped.filter(
-              (s) =>
-                !(
-                  s.moduleIndex === moduleIndex && s.itemIndex === itemIndex
-                ),
-            ),
-            skippedThisItem,
-          ],
-        };
-      }
-    } else {
-      skippedThisItem = {
-        moduleIndex,
-        itemIndex,
-        title: item.title,
-        moduleTitle,
-        reason:
-          generation.reason?.trim() ||
-          "Content generation failed after multiple attempts.",
-      };
-      nextBlueprint = {
-        ...blueprint,
-        generationSkippedItems: [
-          ...existingSkipped.filter(
-            (s) =>
-              !(
-                s.moduleIndex === moduleIndex && s.itemIndex === itemIndex
-              ),
-          ),
-          skippedThisItem,
-        ],
-      };
+    );
+    if ("error" in generated) {
+      return { error: generated.error };
     }
 
-    const enriched = enrichBlueprintWithAssets(nextBlueprint, aiSession.assets);
+    let enriched = generated.nextBlueprint;
+    if (generated.assetsForSession) {
+      await prisma.aiGenerationSession.update({
+        where: { id: sessionId },
+        data: { blueprintJson: enriched as object },
+      });
+    }
+
+    const skippedThisItem = generated.skippedItem;
     const nextCursor = cursor + 1;
     const done = nextCursor >= flat.length;
     const audited = done ? auditIncompleteBlueprintItems(enriched) : enriched;
@@ -958,7 +1035,7 @@ export async function generateNextBlueprintItem(sessionId: string) {
       where: { id: sessionId },
       data: {
         blueprintJson: audited as object,
-        generationMessages: generation.thread as object[],
+        generationMessages: generated.thread,
         contentItemCursor: nextCursor,
         status: done ? "ready" : "generating_content",
         error: null,
@@ -1038,6 +1115,76 @@ export async function generateNextBlueprintItem(sessionId: string) {
       skippedItem: skippedThisItem,
       skippedCount: nextBlueprint.generationSkippedItems?.length ?? 0,
     };
+  }
+}
+
+/** Regenerate content for one incomplete item (preview step — no rework prompt). */
+export async function retryBlueprintItemContent(
+  sessionId: string,
+  moduleIndex: number,
+  itemIndex: number,
+) {
+  const aiSession = await loadSessionForGeneration(sessionId);
+  if (!aiSession?.blueprintJson) return { error: "No blueprint found." };
+  if (!aiSession.structureApproved) {
+    return { error: "Approve the structure before generating content." };
+  }
+  if (
+    aiSession.status !== "ready" &&
+    aiSession.status !== "failed" &&
+    aiSession.status !== "generating_content"
+  ) {
+    return {
+      error: "Finish or stop content generation before retrying individual items.",
+    };
+  }
+
+  const blueprint = courseBlueprintSchema.parse(aiSession.blueprintJson);
+  const item = blueprint.modules[moduleIndex]?.items[itemIndex];
+  if (!item) return { error: "Item not found." };
+
+  if (!isBlueprintItemIncomplete(blueprint, moduleIndex, itemIndex)) {
+    return { error: "This item already has content. Use Rework to change it." };
+  }
+
+  try {
+    const generated = await generateBlueprintItemAt(
+      sessionId,
+      aiSession,
+      blueprint,
+      moduleIndex,
+      itemIndex,
+      { resetToSkeleton: true },
+    );
+    if ("error" in generated) {
+      return { error: generated.error };
+    }
+
+    const audited = auditIncompleteBlueprintItems(generated.nextBlueprint);
+
+    await prisma.aiGenerationSession.update({
+      where: { id: sessionId },
+      data: {
+        blueprintJson: audited as object,
+        generationMessages: generated.thread,
+        status: "ready",
+        error: null,
+      },
+    });
+
+    revalidatePath(`/admin/courses/${aiSession.courseId}/builder`);
+
+    return {
+      ok: generated.ok as boolean,
+      blueprint: audited,
+      skippedItem: generated.skippedItem,
+      error: generated.ok
+        ? undefined
+        : (generated.skippedItem?.reason ?? "Generation failed."),
+    };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Content generation failed.";
+    return { error: message };
   }
 }
 

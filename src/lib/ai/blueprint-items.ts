@@ -56,6 +56,30 @@ export function missingContentReason(item: BlueprintItem): string {
   }
 }
 
+/** Reset generated fields so content can be regenerated from the outline. */
+export function stripItemToSkeleton(item: BlueprintItem): BlueprintItem {
+  return {
+    type: item.type,
+    title: item.title,
+    outline: item.outline,
+    track: item.track,
+    linkedSourceAssetRefs: item.linkedSourceAssetRefs,
+  };
+}
+
+export function isBlueprintItemIncomplete(
+  blueprint: CourseBlueprint,
+  moduleIndex: number,
+  itemIndex: number,
+): boolean {
+  const item = blueprint.modules[moduleIndex]?.items[itemIndex];
+  if (!item) return false;
+  if (itemNeedsContent(item)) return true;
+  return (blueprint.generationSkippedItems ?? []).some(
+    (s) => s.moduleIndex === moduleIndex && s.itemIndex === itemIndex,
+  );
+}
+
 /** Find items with empty content and record them in generationSkippedItems. */
 export function auditIncompleteBlueprintItems(
   blueprint: CourseBlueprint,
