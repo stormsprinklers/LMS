@@ -952,10 +952,10 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
               <span>
                 <span className="font-medium">Find related photos automatically</span>
                 <span className="mt-1 block text-xs text-storm-navy/65">
-                  AI will search for a relevant photo for each lesson and embed it inline
-                  instead of requiring you to upload images. Works with Wikimedia Commons by
-                  default; optional <code className="text-[11px]">UNSPLASH_ACCESS_KEY</code> or{" "}
-                  <code className="text-[11px]">PEXELS_API_KEY</code> improve results.
+                  AI builds a search query and picks the top Google image result for each
+                  lesson. Requires <code className="text-[11px]">GOOGLE_CLOUD_API_KEY</code> and{" "}
+                  <code className="text-[11px]">GOOGLE_CSE_ID</code>. You can replace photos
+                  later in the course builder.
                 </span>
               </span>
             </label>
@@ -972,10 +972,9 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
               <span>
                 <span className="font-medium">Find related YouTube videos automatically</span>
                 <span className="mt-1 block text-xs text-storm-navy/65">
-                  AI will search for relevant public YouTube videos for each video lesson
-                  instead of requiring you to upload or paste links. Optional{" "}
-                  <code className="text-[11px]">YOUTUBE_API_KEY</code> improves search
-                  quality.
+                  AI builds a search query and picks the top YouTube result for each video
+                  lesson. Requires <code className="text-[11px]">GOOGLE_CLOUD_API_KEY</code>.
+                  You can change the video link later in the course builder.
                 </span>
               </span>
             </label>

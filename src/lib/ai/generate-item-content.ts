@@ -293,7 +293,7 @@ async function generateDiscoveredVideoItem(options: {
       ok: false,
       skipped: true,
       reason:
-        "Could not find a related YouTube video. Add YOUTUBE_API_KEY for search, or paste a YouTube link manually.",
+        "Could not find a related YouTube video. Set GOOGLE_CLOUD_API_KEY (YouTube Data API) or paste a YouTube link manually.",
       thread,
       attempts: 1,
     };
