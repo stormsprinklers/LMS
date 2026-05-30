@@ -27,6 +27,8 @@ export function wizardStepFromSessionStatus(
       return "structure_preview";
     case "generating_content":
       return "generating_content";
+    case "reworking":
+      return "preview";
     case "ready":
       return "preview";
     case "failed":
@@ -50,6 +52,8 @@ export function sessionStatusLabel(status: AiSessionStatus): string {
       return "Structure ready for review";
     case "generating_content":
       return "Writing content";
+    case "reworking":
+      return "Revising draft";
     case "ready":
       return "Draft ready";
     case "failed":

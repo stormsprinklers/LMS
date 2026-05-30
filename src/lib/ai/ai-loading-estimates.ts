@@ -32,8 +32,16 @@ export function getAiStudioLoadingMessage(options: {
     | "generating_content"
     | "preview";
   contentProgress?: { current: number; total: number; label?: string } | null;
+  activeWork?: boolean;
 }): AiLoadingMessage {
-  const { step, contentProgress } = options;
+  const { step, contentProgress, activeWork } = options;
+
+  if (step === "preview" && activeWork) {
+    return {
+      label: "Revising course content…",
+      timeEstimate: "Usually about 30 seconds to 2 minutes",
+    };
+  }
 
   if (step === "processing") {
     return {

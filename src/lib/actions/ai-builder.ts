@@ -603,6 +603,25 @@ async function loadSessionForGeneration(sessionId: string) {
   return aiSession;
 }
 
+async function beginCancellableAiOperation(sessionId: string, courseId: string) {
+  const updated = await prisma.aiGenerationSession.updateMany({
+    where: { id: sessionId, status: { in: ["ready", "failed"] } },
+    data: { status: "reworking", error: null },
+  });
+  if (updated.count === 0) {
+    return { error: "An AI operation is already in progress for this draft." };
+  }
+  return { ok: true as const };
+}
+
+async function isAiOperationCancelled(sessionId: string) {
+  const row = await prisma.aiGenerationSession.findUnique({
+    where: { id: sessionId },
+    select: { status: true },
+  });
+  return row?.status !== "reworking";
+}
+
 export async function generateCourseStructure(sessionId: string) {
   const aiSession = await loadSessionForGeneration(sessionId);
   if (!aiSession) return { error: "Session not found." };
@@ -1147,6 +1166,9 @@ export async function retryBlueprintItemContent(
     return { error: "This item already has content. Use Rework to change it." };
   }
 
+  const begin = await beginCancellableAiOperation(sessionId, aiSession.courseId);
+  if ("error" in begin) return begin;
+
   try {
     const generated = await generateBlueprintItemAt(
       sessionId,
@@ -1157,7 +1179,15 @@ export async function retryBlueprintItemContent(
       { resetToSkeleton: true },
     );
     if ("error" in generated) {
+      await prisma.aiGenerationSession.update({
+        where: { id: sessionId },
+        data: { status: "ready" },
+      });
       return { error: generated.error };
+    }
+
+    if (await isAiOperationCancelled(sessionId)) {
+      return { cancelled: true as const };
     }
 
     const audited = auditIncompleteBlueprintItems(generated.nextBlueprint);
@@ -1184,6 +1214,10 @@ export async function retryBlueprintItemContent(
     };
   } catch (e) {
     const message = e instanceof Error ? e.message : "Content generation failed.";
+    await prisma.aiGenerationSession.update({
+      where: { id: sessionId },
+      data: { status: "ready", error: message },
+    });
     return { error: message };
   }
 }
@@ -1197,9 +1231,19 @@ export async function cancelAiGenerationSession(sessionId: string) {
   if (
     status !== "processing" &&
     status !== "generating" &&
-    status !== "generating_content"
+    status !== "generating_content" &&
+    status !== "reworking"
   ) {
     return { error: "Nothing is running to stop." };
+  }
+
+  if (status === "reworking") {
+    await prisma.aiGenerationSession.update({
+      where: { id: sessionId },
+      data: { status: "ready", error: null },
+    });
+    revalidatePath(`/admin/courses/${aiSession.courseId}/builder`);
+    return { stopped: true as const, nextStep: "preview" as const };
   }
 
   if (status === "generating_content" && blueprintJson && structureApproved) {
@@ -1246,6 +1290,9 @@ export async function reworkBlueprintSectionAction(
   if (!aiSession?.blueprintJson) return { error: "No blueprint to rework." };
   await requireManageCourse(aiSession.courseId);
 
+  const begin = await beginCancellableAiOperation(sessionId, aiSession.courseId);
+  if ("error" in begin) return begin;
+
   const current = courseBlueprintSchema.parse(aiSession.blueprintJson);
   const result = await reworkBlueprintSection(
     current,
@@ -1253,16 +1300,28 @@ export async function reworkBlueprintSectionAction(
     moduleIndex,
     itemIndex,
   );
-  if (result.error || !result.blueprint) return { error: result.error ?? "Rework failed." };
+
+  if (await isAiOperationCancelled(sessionId)) {
+    return { cancelled: true as const };
+  }
+
+  if (result.error || !result.blueprint) {
+    await prisma.aiGenerationSession.update({
+      where: { id: sessionId },
+      data: { status: "ready", error: result.error ?? "Rework failed." },
+    });
+    return { error: result.error ?? "Rework failed." };
+  }
 
   const assets = await loadSessionAssets(sessionId);
   const enriched = enrichBlueprintWithAssets(result.blueprint, assets);
 
   await prisma.aiGenerationSession.update({
     where: { id: sessionId },
-    data: { blueprintJson: enriched as object, status: "ready" },
+    data: { blueprintJson: enriched as object, status: "ready", error: null },
   });
 
+  revalidatePath(`/admin/courses/${aiSession.courseId}/builder`);
   return { blueprint: enriched, issues: result.issues };
 }
 

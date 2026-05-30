@@ -326,34 +326,3 @@ export function buildItemContentUserMessage(options: {
     .filter(Boolean)
     .join("\n\n");
 }
-
-export function buildReworkMessages(
-  blueprint: CourseBlueprint,
-  instruction: string,
-  moduleIndex?: number,
-  itemIndex?: number,
-) {
-  const slice =
-    moduleIndex !== undefined
-      ? {
-          module: blueprint.modules[moduleIndex],
-          moduleIndex,
-          item:
-            itemIndex !== undefined
-              ? blueprint.modules[moduleIndex]?.items[itemIndex]
-              : undefined,
-          itemIndex,
-        }
-      : { course: blueprint.course, modules: blueprint.modules };
-
-  const system = `You revise a CourseBlueprint JSON (version "1.0"). Apply the user's instruction to the provided slice and return the FULL updated blueprint JSON. Keep unchanged sections identical.
-When adding or reordering items, prefer LESSON and QUIZ items with an EXAM at the end of each module.`;
-
-  const user = [
-    `Instruction: ${instruction}`,
-    `Current blueprint slice:\n${JSON.stringify(slice, null, 2)}`,
-    `Full blueprint for reference:\n${JSON.stringify(blueprint, null, 2)}`,
-  ].join("\n\n");
-
-  return { system, user };
-}

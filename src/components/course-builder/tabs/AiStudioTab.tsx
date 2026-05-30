@@ -363,6 +363,11 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
         "Stop writing content?\n\nItems already written will be kept. You can continue generating the rest later.",
       );
     }
+    if (step === "preview" && busy) {
+      return window.confirm(
+        "Stop this AI request?\n\nChanges from the in-flight request will be discarded.",
+      );
+    }
     if (step === "processing") {
       return window.confirm(
         "Stop processing sources?\n\nProcessing may continue in the background, but you can leave this step now.",
@@ -383,6 +388,10 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
     const result = await cancelAiGenerationSession(sessionId);
     setStopping(false);
 
+    if (step === "preview") {
+      setBusy(false);
+    }
+
     if (result.error) {
       setError(result.error);
       return;
@@ -396,7 +405,9 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
       if (result.nextStep === "preview") {
         setStep("preview");
         setNotice(
-          "Content generation stopped. Review what was written below, or continue generating remaining items.",
+          step === "preview"
+            ? "Request stopped. Changes from that request were discarded."
+            : "Content generation stopped. Review what was written below, or continue generating remaining items.",
         );
       } else if (result.nextStep === "generate") {
         setStep("generate");
@@ -691,15 +702,20 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
 
   async function runRetryItem(moduleIndex: number, itemIndex: number) {
     if (!sessionId) return;
+    setBusy(true);
     setRetryingItem({ moduleIndex, itemIndex });
     setError("");
     setNotice("");
     try {
       const result = await retryBlueprintItemContent(sessionId, moduleIndex, itemIndex);
-      if (result.error && !result.ok) {
+      if ("cancelled" in result && result.cancelled) {
+        setNotice("Retry cancelled.");
+        return;
+      }
+      if ("error" in result && result.error && !result.ok) {
         setError(result.error);
       }
-      if (result.blueprint) {
+      if ("blueprint" in result && result.blueprint) {
         setBlueprint(result.blueprint);
         setIssues(validateBlueprint(result.blueprint).issues);
         setGenerationWarnings(warningsFromBlueprint(result.blueprint));
@@ -712,6 +728,7 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
         }
       }
     } finally {
+      setBusy(false);
       setRetryingItem(null);
     }
   }
@@ -743,12 +760,16 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
       selectedItem ?? undefined,
     );
     setBusy(false);
-    if (result.error) {
+    if ("cancelled" in result && result.cancelled) {
+      setNotice("Rework cancelled.");
+      return;
+    }
+    if ("error" in result && result.error) {
       setError(result.error);
       return;
     }
-    if (result.blueprint) setBlueprint(result.blueprint);
-    if (result.issues) setIssues(result.issues);
+    if ("blueprint" in result && result.blueprint) setBlueprint(result.blueprint);
+    if ("issues" in result && result.issues) setIssues(result.issues);
     setReworkInstruction("");
   }
 
@@ -792,6 +813,7 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
   const loadingMessage = getAiStudioLoadingMessage({
     step,
     contentProgress,
+    activeWork: busy && step === "preview",
   });
 
   return (

@@ -248,6 +248,7 @@ enum AiSessionStatus {
   generating
   structure_ready
   generating_content
+  reworking
   ready
   applied
   failed
