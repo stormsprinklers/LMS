@@ -200,6 +200,7 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
   const contentGenCancelledRef = useRef(false);
   const stopRequestedRef = useRef(false);
   const retryOpRef = useRef(0);
+  const reworkOpRef = useRef(0);
   const draftRestored = useRef(false);
 
   const applySessionData = useCallback(
@@ -477,6 +478,14 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
       setRetryingItem(null);
       setAiProgress(null);
       setNotice("Try again stopped.");
+      return;
+    }
+
+    if (step === "preview" && busy && !retryingItem) {
+      reworkOpRef.current += 1;
+      setBusy(false);
+      setAiProgress(null);
+      setNotice("Rework stopped.");
       return;
     }
 
@@ -948,6 +957,7 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
       if (!ok) return;
     }
 
+    const opId = ++reworkOpRef.current;
     setBusy(true);
     setError("");
     setNotice("");
@@ -983,28 +993,42 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
         selectedModule,
         selectedItem ?? undefined,
       );
-      if ("cancelled" in result && result.cancelled) {
-        setNotice("Rework cancelled.");
-        return;
-      }
+      if (opId !== reworkOpRef.current) return;
+
       if ("error" in result && result.error) {
         setError(result.error);
+        setNotice("Rework failed — see the error above.");
         return;
       }
+
+      if (!("blueprint" in result) || !result.blueprint) {
+        setError("Rework finished without an updated draft.");
+        setNotice("Rework did not return changes — try again.");
+        return;
+      }
+
       setAiProgress((prev) =>
         prev ? finishAiProgress(prev, "Rework complete") : prev,
       );
-      if ("blueprint" in result && result.blueprint) setBlueprint(result.blueprint);
+      setBlueprint(result.blueprint);
       if ("issues" in result && result.issues) setIssues(result.issues);
+      setSessionStatus("ready");
       setReworkInstruction("");
       setNotice(
-        selectedItem !== null
-          ? "Item rework complete."
-          : "Module rework complete.",
+        isSingleItem
+          ? "Item rework complete. Review the updated preview."
+          : "Module rework complete. Review the updated preview.",
       );
+    } catch (e) {
+      if (opId !== reworkOpRef.current) return;
+      const message = e instanceof Error ? e.message : "Rework failed.";
+      setError(message);
+      setNotice("Rework failed — see the error above.");
     } finally {
-      setBusy(false);
-      setAiProgress(null);
+      if (opId === reworkOpRef.current) {
+        setBusy(false);
+        setAiProgress(null);
+      }
     }
   }
 

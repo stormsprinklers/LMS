@@ -603,23 +603,8 @@ async function loadSessionForGeneration(sessionId: string) {
   return aiSession;
 }
 
-async function beginCancellableAiOperation(sessionId: string, courseId: string) {
-  await prisma.aiGenerationSession.updateMany({
-    where: { id: sessionId, status: "reworking" },
-    data: { status: "ready", error: null },
-  });
-
-  const updated = await prisma.aiGenerationSession.updateMany({
-    where: { id: sessionId, status: { in: ["ready", "failed"] } },
-    data: { status: "reworking", error: null },
-  });
-  if (updated.count === 0) {
-    return { error: "An AI operation is already in progress for this draft." };
-  }
-  return { ok: true as const };
-}
-
-async function prepareSessionForItemRetry(sessionId: string) {
+/** Reset stuck/paused session states so preview rework & retry can run. */
+async function prepareSessionForPreviewEdit(sessionId: string) {
   const row = await prisma.aiGenerationSession.findUnique({
     where: { id: sessionId },
     select: { status: true },
@@ -630,6 +615,10 @@ async function prepareSessionForItemRetry(sessionId: string) {
     return {
       error: "Wait until structure generation or source processing finishes.",
     } as const;
+  }
+
+  if (row.status === "applied") {
+    return { error: "This draft was already applied to the course." } as const;
   }
 
   if (
@@ -644,14 +633,6 @@ async function prepareSessionForItemRetry(sessionId: string) {
   }
 
   return { ok: true as const };
-}
-
-async function isAiOperationCancelled(sessionId: string) {
-  const row = await prisma.aiGenerationSession.findUnique({
-    where: { id: sessionId },
-    select: { status: true },
-  });
-  return row?.status !== "reworking";
 }
 
 export async function generateCourseStructure(sessionId: string) {
@@ -1181,7 +1162,7 @@ export async function retryBlueprintItemContent(
     return { error: "Approve the structure before generating content." };
   }
 
-  const prepared = await prepareSessionForItemRetry(sessionId);
+  const prepared = await prepareSessionForPreviewEdit(sessionId);
   if ("error" in prepared) return prepared;
 
   const blueprint = courseBlueprintSchema.parse(aiSession.blueprintJson);
@@ -1316,39 +1297,44 @@ export async function reworkBlueprintSectionAction(
   if (!aiSession?.blueprintJson) return { error: "No blueprint to rework." };
   await requireManageCourse(aiSession.courseId);
 
-  const begin = await beginCancellableAiOperation(sessionId, aiSession.courseId);
-  if ("error" in begin) return begin;
+  const prepared = await prepareSessionForPreviewEdit(sessionId);
+  if ("error" in prepared) return prepared;
 
-  const current = courseBlueprintSchema.parse(aiSession.blueprintJson);
-  const result = await reworkBlueprintSection(
-    current,
-    instruction,
-    moduleIndex,
-    itemIndex,
-  );
+  try {
+    const current = courseBlueprintSchema.parse(aiSession.blueprintJson);
+    const result = await reworkBlueprintSection(
+      current,
+      instruction,
+      moduleIndex,
+      itemIndex,
+    );
 
-  if (await isAiOperationCancelled(sessionId)) {
-    return { cancelled: true as const };
-  }
+    if (result.error || !result.blueprint) {
+      await prisma.aiGenerationSession.update({
+        where: { id: sessionId },
+        data: { status: "ready", error: result.error ?? "Rework failed." },
+      });
+      return { error: result.error ?? "Rework failed." };
+    }
 
-  if (result.error || !result.blueprint) {
+    const assets = await loadSessionAssets(sessionId);
+    const enriched = enrichBlueprintWithAssets(result.blueprint, assets);
+
     await prisma.aiGenerationSession.update({
       where: { id: sessionId },
-      data: { status: "ready", error: result.error ?? "Rework failed." },
+      data: { blueprintJson: enriched as object, status: "ready", error: null },
     });
-    return { error: result.error ?? "Rework failed." };
+
+    revalidatePath(`/admin/courses/${aiSession.courseId}/builder`);
+    return { blueprint: enriched, issues: result.issues };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Rework failed.";
+    await prisma.aiGenerationSession.update({
+      where: { id: sessionId },
+      data: { status: "ready", error: message },
+    });
+    return { error: message };
   }
-
-  const assets = await loadSessionAssets(sessionId);
-  const enriched = enrichBlueprintWithAssets(result.blueprint, assets);
-
-  await prisma.aiGenerationSession.update({
-    where: { id: sessionId },
-    data: { blueprintJson: enriched as object, status: "ready", error: null },
-  });
-
-  revalidatePath(`/admin/courses/${aiSession.courseId}/builder`);
-  return { blueprint: enriched, issues: result.issues };
 }
 
 export async function applyCourseBlueprint(sessionId: string) {
