@@ -189,6 +189,7 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
   const contentGenStarted = useRef(false);
   const contentGenCancelledRef = useRef(false);
   const stopRequestedRef = useRef(false);
+  const retryOpRef = useRef(0);
   const draftRestored = useRef(false);
 
   const applySessionData = useCallback(
@@ -368,6 +369,9 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
         "Stop this AI request?\n\nChanges from the in-flight request will be discarded.",
       );
     }
+    if (step === "preview" && retryingItem) {
+      return window.confirm("Stop retrying this item?");
+    }
     if (step === "processing") {
       return window.confirm(
         "Stop processing sources?\n\nProcessing may continue in the background, but you can leave this step now.",
@@ -380,6 +384,13 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
 
   async function handleStopGeneration() {
     if (!sessionId || stopping || !confirmStopGeneration()) return;
+
+    if (step === "preview" && retryingItem) {
+      retryOpRef.current += 1;
+      setRetryingItem(null);
+      setNotice("Try again stopped.");
+      return;
+    }
 
     setStopping(true);
     stopRequestedRef.current = true;
@@ -702,34 +713,42 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
 
   async function runRetryItem(moduleIndex: number, itemIndex: number) {
     if (!sessionId) return;
-    setBusy(true);
+    const opId = ++retryOpRef.current;
     setRetryingItem({ moduleIndex, itemIndex });
     setError("");
     setNotice("");
     try {
       const result = await retryBlueprintItemContent(sessionId, moduleIndex, itemIndex);
-      if ("cancelled" in result && result.cancelled) {
-        setNotice("Retry cancelled.");
+      if (opId !== retryOpRef.current) return;
+
+      if ("error" in result && result.error && !("blueprint" in result)) {
+        setError(result.error);
+        setNotice("Try again failed — see the error above.");
         return;
       }
-      if ("error" in result && result.error && !result.ok) {
-        setError(result.error);
-      }
+
       if ("blueprint" in result && result.blueprint) {
         setBlueprint(result.blueprint);
         setIssues(validateBlueprint(result.blueprint).issues);
         setGenerationWarnings(warningsFromBlueprint(result.blueprint));
-        const title =
-          result.blueprint.modules[moduleIndex]?.items[itemIndex]?.title ?? "Item";
-        if (result.ok) {
-          setNotice(`Regenerated "${title}" successfully.`);
-        } else if (result.skippedItem?.reason) {
-          setError(result.skippedItem.reason);
+
+        if ("ok" in result && result.ok && "message" in result && result.message) {
+          setNotice(result.message);
+          setError("");
+          return;
         }
+
+        const failReason =
+          ("error" in result && result.error) ||
+          ("skippedItem" in result && result.skippedItem?.reason) ||
+          "Generation failed again.";
+        setError(failReason);
+        setNotice("Try again did not finish this item — see the error above.");
       }
     } finally {
-      setBusy(false);
-      setRetryingItem(null);
+      if (opId === retryOpRef.current) {
+        setRetryingItem(null);
+      }
     }
   }
 
@@ -1487,7 +1506,7 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
             }}
             onRetryItem={(mi, ii) => void runRetryItem(mi, ii)}
             retryingItem={retryingItem}
-            retryDisabled={busy}
+            retryDisabled={busy || !!retryingItem}
           />
 
           <div className="rounded-xl border bg-white p-4">

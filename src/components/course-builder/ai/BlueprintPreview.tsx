@@ -194,14 +194,21 @@ function PreviewItemDetail({
               "AI could not write this item. Try again or edit after apply."}
           </p>
           {onRetryItem && !structureOnly && (
-            <button
-              type="button"
-              disabled={retryDisabled || isRetrying}
-              onClick={() => onRetryItem(moduleIndex, itemIndex)}
-              className="mt-3 min-h-9 rounded-lg bg-storm-medium-blue px-4 text-xs font-semibold text-white disabled:opacity-50"
-            >
-              {isRetrying ? "Trying again…" : "Try again"}
-            </button>
+            <div className="mt-3 space-y-2">
+              <button
+                type="button"
+                disabled={retryDisabled || isRetrying}
+                onClick={() => onRetryItem(moduleIndex, itemIndex)}
+                className="min-h-9 rounded-lg bg-storm-medium-blue px-4 text-xs font-semibold text-white disabled:opacity-50"
+              >
+                {isRetrying ? "Generating…" : "Try again"}
+              </button>
+              {isRetrying && (
+                <p className="text-xs text-amber-900/80">
+                  AI is rewriting this item — usually 30 seconds to 2 minutes.
+                </p>
+              )}
+            </div>
           )}
         </div>
       )}

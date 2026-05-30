@@ -604,6 +604,11 @@ async function loadSessionForGeneration(sessionId: string) {
 }
 
 async function beginCancellableAiOperation(sessionId: string, courseId: string) {
+  await prisma.aiGenerationSession.updateMany({
+    where: { id: sessionId, status: "reworking" },
+    data: { status: "ready", error: null },
+  });
+
   const updated = await prisma.aiGenerationSession.updateMany({
     where: { id: sessionId, status: { in: ["ready", "failed"] } },
     data: { status: "reworking", error: null },
@@ -611,6 +616,33 @@ async function beginCancellableAiOperation(sessionId: string, courseId: string) 
   if (updated.count === 0) {
     return { error: "An AI operation is already in progress for this draft." };
   }
+  return { ok: true as const };
+}
+
+async function prepareSessionForItemRetry(sessionId: string) {
+  const row = await prisma.aiGenerationSession.findUnique({
+    where: { id: sessionId },
+    select: { status: true },
+  });
+  if (!row) return { error: "Session not found." as const };
+
+  if (row.status === "processing" || row.status === "generating" || row.status === "collecting") {
+    return {
+      error: "Wait until structure generation or source processing finishes.",
+    } as const;
+  }
+
+  if (
+    row.status === "reworking" ||
+    row.status === "generating_content" ||
+    row.status === "failed"
+  ) {
+    await prisma.aiGenerationSession.update({
+      where: { id: sessionId },
+      data: { status: "ready", error: null },
+    });
+  }
+
   return { ok: true as const };
 }
 
@@ -1148,15 +1180,9 @@ export async function retryBlueprintItemContent(
   if (!aiSession.structureApproved) {
     return { error: "Approve the structure before generating content." };
   }
-  if (
-    aiSession.status !== "ready" &&
-    aiSession.status !== "failed" &&
-    aiSession.status !== "generating_content"
-  ) {
-    return {
-      error: "Finish or stop content generation before retrying individual items.",
-    };
-  }
+
+  const prepared = await prepareSessionForItemRetry(sessionId);
+  if ("error" in prepared) return prepared;
 
   const blueprint = courseBlueprintSchema.parse(aiSession.blueprintJson);
   const item = blueprint.modules[moduleIndex]?.items[itemIndex];
@@ -1165,9 +1191,6 @@ export async function retryBlueprintItemContent(
   if (!isBlueprintItemIncomplete(blueprint, moduleIndex, itemIndex)) {
     return { error: "This item already has content. Use Rework to change it." };
   }
-
-  const begin = await beginCancellableAiOperation(sessionId, aiSession.courseId);
-  if ("error" in begin) return begin;
 
   try {
     const generated = await generateBlueprintItemAt(
@@ -1179,15 +1202,7 @@ export async function retryBlueprintItemContent(
       { resetToSkeleton: true },
     );
     if ("error" in generated) {
-      await prisma.aiGenerationSession.update({
-        where: { id: sessionId },
-        data: { status: "ready" },
-      });
       return { error: generated.error };
-    }
-
-    if (await isAiOperationCancelled(sessionId)) {
-      return { cancelled: true as const };
     }
 
     const audited = auditIncompleteBlueprintItems(generated.nextBlueprint);
@@ -1204,13 +1219,24 @@ export async function retryBlueprintItemContent(
 
     revalidatePath(`/admin/courses/${aiSession.courseId}/builder`);
 
+    const itemTitle =
+      audited.modules[moduleIndex]?.items[itemIndex]?.title ?? item.title;
+
+    if (generated.ok) {
+      return {
+        ok: true as const,
+        blueprint: audited,
+        message: `Regenerated "${itemTitle}" successfully.`,
+      };
+    }
+
     return {
-      ok: generated.ok as boolean,
+      ok: false as const,
       blueprint: audited,
       skippedItem: generated.skippedItem,
-      error: generated.ok
-        ? undefined
-        : (generated.skippedItem?.reason ?? "Generation failed."),
+      error:
+        generated.skippedItem?.reason ??
+        "Generation failed. Check the reason on the item and try again or edit manually.",
     };
   } catch (e) {
     const message = e instanceof Error ? e.message : "Content generation failed.";
