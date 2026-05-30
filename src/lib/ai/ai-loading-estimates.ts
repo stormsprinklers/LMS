@@ -33,13 +33,18 @@ export function getAiStudioLoadingMessage(options: {
     | "preview";
   contentProgress?: { current: number; total: number; label?: string } | null;
   activeWork?: boolean;
+  reworkScope?: string | null;
 }): AiLoadingMessage {
-  const { step, contentProgress, activeWork } = options;
+  const { step, contentProgress, activeWork, reworkScope } = options;
 
   if (step === "preview" && activeWork) {
     return {
-      label: "Revising course content…",
-      timeEstimate: "Usually about 30 seconds to 2 minutes",
+      label: reworkScope
+        ? `Revising ${reworkScope}…`
+        : "Revising course content…",
+      timeEstimate: reworkScope
+        ? "Usually about 30 seconds to 2 minutes"
+        : "Usually about 30 seconds to 2 minutes",
     };
   }
 

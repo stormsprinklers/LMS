@@ -5,9 +5,8 @@ import {
 } from "./rework-prompt";
 import type { CourseBlueprint } from "./blueprint-schema";
 import { AI_GENERATION_MODEL, AI_ITEM_CONTENT_MAX_TOKENS, requireOpenAI } from "./openai-client";
-import { AI_STRUCTURE_MAX_TOKENS } from "./openai-client";
 import { createChatCompletionWithRetry } from "./openai-completions";
-import { courseBlueprintSchema, normalizeLlmBlueprint, courseBlueprintJsonSchema } from "./blueprint-schema";
+import { courseBlueprintSchema, normalizeLlmBlueprint } from "./blueprint-schema";
 import { validateBlueprint } from "./validate-blueprint";
 import { LESSON_HTML_AUTHORING_GUIDE } from "./lesson-html";
 import { repairGeneratedItemCandidate } from "./repair-item-content";
@@ -23,6 +22,19 @@ const itemReworkJsonSchema = {
       type: "object",
       additionalProperties: true,
       required: ["type", "title"],
+    },
+  },
+} as const;
+
+const moduleReworkJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["module"],
+  properties: {
+    module: {
+      type: "object",
+      additionalProperties: true,
+      required: ["title", "items"],
     },
   },
 } as const;
@@ -104,36 +116,48 @@ async function reworkSingleItem(
   return { blueprint: next, issues: blueprintValidation.issues };
 }
 
-export async function reworkBlueprintSection(
+async function reworkSingleModule(
   blueprint: CourseBlueprint,
   instruction: string,
-  moduleIndex?: number,
-  itemIndex?: number,
+  moduleIndex: number,
 ): Promise<{ blueprint?: CourseBlueprint; error?: string; issues?: ReturnType<typeof validateBlueprint>["issues"] }> {
-  if (moduleIndex !== undefined && itemIndex !== undefined) {
-    return reworkSingleItem(blueprint, instruction, moduleIndex, itemIndex);
-  }
+  const mod = blueprint.modules[moduleIndex];
+  if (!mod) return { error: "Module not found." };
 
   const openai = requireOpenAI();
-  const compact = compactBlueprintForRework(
-    blueprint,
-    moduleIndex !== undefined ? { moduleIndex } : undefined,
-  );
-  const { system, user } = buildReworkMessages(compact, instruction, moduleIndex, itemIndex);
+  const otherModules = blueprint.modules
+    .filter((_, i) => i !== moduleIndex)
+    .map((m) => ({ title: m.title, itemCount: m.items.length }));
+
+  const userContent = [
+    `Revise this one module according to the instruction. Return JSON: { "module": { "title", "description?", "items": [...] } }`,
+    `Instruction: ${instruction}`,
+    `Module to revise:\n${JSON.stringify(mod, null, 0)}`,
+    otherModules.length > 0
+      ? `Other modules (for context only — do not include in output):\n${JSON.stringify(otherModules, null, 0)}`
+      : "",
+    "Return only the revised module object with all of its items.",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 
   const completion = await createChatCompletionWithRetry(openai, {
     model: AI_GENERATION_MODEL,
     messages: [
-      { role: "system", content: system },
-      { role: "user", content: user },
+      {
+        role: "system",
+        content:
+          "You revise one module in a workplace training course. Output valid JSON with a single module object only.",
+      },
+      { role: "user", content: userContent },
     ],
-    max_tokens: AI_STRUCTURE_MAX_TOKENS,
+    max_tokens: AI_ITEM_CONTENT_MAX_TOKENS,
     response_format: {
       type: "json_schema",
       json_schema: {
-        name: "course_blueprint",
+        name: "rework_module",
         strict: false,
-        schema: courseBlueprintJsonSchema as Record<string, unknown>,
+        schema: moduleReworkJsonSchema as Record<string, unknown>,
       },
     },
   });
@@ -148,12 +172,49 @@ export async function reworkBlueprintSection(
     return { error: "AI returned invalid JSON." };
   }
 
-  const normalized = normalizeLlmBlueprint(parsed);
-  const next = courseBlueprintSchema.safeParse(normalized);
-  if (!next.success) {
-    return { error: next.error.message };
+  const modulePayload =
+    parsed && typeof parsed === "object" && "module" in parsed
+      ? (parsed as { module: unknown }).module
+      : parsed;
+
+  if (!modulePayload || typeof modulePayload !== "object") {
+    return { error: "AI returned an invalid module." };
   }
 
-  const validation = validateBlueprint(next.data);
-  return { blueprint: next.data, issues: validation.issues };
+  const next = {
+    ...blueprint,
+    modules: blueprint.modules.map((m, mi) =>
+      mi !== moduleIndex ? m : { ...m, ...(modulePayload as typeof m) },
+    ),
+  };
+
+  const normalized = normalizeLlmBlueprint(next);
+  const parsedBlueprint = courseBlueprintSchema.safeParse(normalized);
+  if (!parsedBlueprint.success) {
+    return { error: parsedBlueprint.error.message };
+  }
+
+  const validation = validateBlueprint(parsedBlueprint.data);
+  return { blueprint: parsedBlueprint.data, issues: validation.issues };
+}
+
+/** Rework one item (preferred) or one module — never the full course in one call. */
+export async function reworkBlueprintSection(
+  blueprint: CourseBlueprint,
+  instruction: string,
+  moduleIndex?: number,
+  itemIndex?: number,
+): Promise<{ blueprint?: CourseBlueprint; error?: string; issues?: ReturnType<typeof validateBlueprint>["issues"] }> {
+  if (moduleIndex !== undefined && itemIndex !== undefined) {
+    return reworkSingleItem(blueprint, instruction, moduleIndex, itemIndex);
+  }
+
+  if (moduleIndex !== undefined) {
+    return reworkSingleModule(blueprint, instruction, moduleIndex);
+  }
+
+  return {
+    error:
+      "Select a specific item in the preview structure (click a lesson, quiz, or video). Rework does not run on the whole course at once.",
+  };
 }

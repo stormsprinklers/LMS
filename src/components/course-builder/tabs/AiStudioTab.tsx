@@ -33,8 +33,17 @@ import {
   type BlueprintItemType,
 } from "@/lib/ai/allowed-item-types";
 import { BlueprintPreview } from "../ai/BlueprintPreview";
-import { AiLoadingSpinner } from "../ai/AiLoadingSpinner";
-import { getAiStudioLoadingMessage } from "@/lib/ai/ai-loading-estimates";
+import { AiLoadingView, AiLoadingSpinner } from "../ai/AiLoadingView";
+import {
+  activateAiStep,
+  completeAiStep,
+  createAiProgress,
+  finishAiProgress,
+  patchAiProgress,
+  progressDetailForProcessingAssets,
+  type AiOperationProgress,
+} from "@/lib/ai/ai-operation-progress";
+import { getAiStudioLoadingMessage, formatContentGenerationEstimate } from "@/lib/ai/ai-loading-estimates";
 import { ItemTypePicker } from "../ai/ItemTypePicker";
 import { FileInput } from "@/components/ui/FileInput";
 import { YouTubeIframe } from "@/components/video/YouTubeIframe";
@@ -176,6 +185,7 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
     moduleIndex: number;
     itemIndex: number;
   } | null>(null);
+  const [aiProgress, setAiProgress] = useState<AiOperationProgress | null>(null);
   const [contentProgress, setContentProgress] = useState<{
     current: number;
     total: number;
@@ -289,6 +299,16 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
   }, [sessionId, step, pollSession]);
 
   useEffect(() => {
+    if (step !== "processing" || !aiProgress) return;
+    const { detail, activeStepId } = progressDetailForProcessingAssets(assets);
+    setAiProgress((prev) => {
+      if (!prev) return prev;
+      const next = patchAiProgress(prev, { detail });
+      return activateAiStep(next, activeStepId, detail);
+    });
+  }, [assets, step, aiProgress?.startedAt]);
+
+  useEffect(() => {
     if (step !== "generating_content" || !sessionId) return;
     if (contentGenStarted.current) return;
     contentGenStarted.current = true;
@@ -299,9 +319,47 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
       setError("");
       setNotice("");
       setGenerationWarnings([]);
+      const total = flattenTotal(blueprint);
+      setAiProgress(
+        createAiProgress(
+          "Writing course content",
+          [
+            { id: "prepare", label: "Prepare items and media links" },
+            { id: "write", label: "AI writes each lesson, quiz, and video" },
+            { id: "save", label: "Save progress to your draft" },
+          ],
+          total > 0 ? `Starting item 1 of ${total}…` : "Starting content generation…",
+          total > 0
+            ? formatContentGenerationEstimate(0, total)
+            : "About 30–90 seconds per item",
+        ),
+      );
       try {
+        let itemNum = 0;
         while (!contentGenCancelledRef.current) {
+          setAiProgress((prev) =>
+            prev
+              ? patchAiProgress(activateAiStep(prev, "write", `Calling AI for item ${itemNum + 1}${total ? ` of ${total}` : ""}…`), {
+                  steps: prev.steps.map((s) =>
+                    s.id === "write"
+                      ? {
+                          ...s,
+                          label:
+                            total > 0
+                              ? `Writing item ${itemNum + 1} of ${total}`
+                              : "AI writes each lesson, quiz, and video",
+                        }
+                      : s.id === "prepare"
+                        ? { ...s, status: "done" as const }
+                        : s,
+                  ),
+                })
+              : prev,
+          );
+
           const result = await generateNextBlueprintItem(sessionId!);
+          itemNum += 1;
+
           if (contentGenCancelledRef.current || result.cancelled) {
             break;
           }
@@ -324,8 +382,36 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
           if (result.progress) {
             setContentProgress(result.progress);
             setContentItemCursor(result.progress.current);
+            const cur = result.progress.current;
+            const tot = result.progress.total;
+            setAiProgress((prev) =>
+              prev
+                ? patchAiProgress(prev, {
+                    detail: result.progress!.label
+                      ? `Finished ${result.progress!.label} — ${cur} of ${tot} done`
+                      : `Finished item ${cur} of ${tot}`,
+                    timeEstimate: formatContentGenerationEstimate(cur, tot),
+                    steps: prev.steps.map((s) =>
+                      s.id === "write"
+                        ? {
+                            ...s,
+                            label: `Writing item ${Math.min(cur + 1, tot)} of ${tot}`,
+                          }
+                        : s,
+                    ),
+                  })
+                : prev,
+            );
           }
           if (result.done) {
+            setAiProgress((prev) =>
+              prev
+                ? finishAiProgress(
+                    activateAiStep(prev, "save", "Saving draft…"),
+                    "Content generation complete",
+                  )
+                : prev,
+            );
             const finalBp = result.blueprint ?? blueprint;
             if (finalBp) {
               setContentItemCursor(flattenTotal(finalBp));
@@ -347,6 +433,7 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
         }
       } finally {
         setBusy(false);
+        setAiProgress(null);
         contentGenStarted.current = false;
       }
     }
@@ -388,6 +475,7 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
     if (step === "preview" && retryingItem) {
       retryOpRef.current += 1;
       setRetryingItem(null);
+      setAiProgress(null);
       setNotice("Try again stopped.");
       return;
     }
@@ -395,6 +483,7 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
     setStopping(true);
     stopRequestedRef.current = true;
     contentGenCancelledRef.current = true;
+    setAiProgress(null);
 
     const result = await cancelAiGenerationSession(sessionId);
     setStopping(false);
@@ -605,18 +694,39 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
     setBusy(true);
     setError("");
     setNotice("");
-    const result = await processAiSession(sessionId);
-    if (stopRequestedRef.current || result.cancelled) {
+    setAiProgress(
+      createAiProgress(
+        "Processing sources",
+        [
+          { id: "extract", label: "Extract text from PDFs and documents" },
+          { id: "transcribe", label: "Transcribe audio and video" },
+          { id: "summarize", label: "Summarize sources for AI" },
+          { id: "finish", label: "Finish processing" },
+        ],
+        "Starting source processing…",
+        "Usually 1–5 minutes depending on file size and count",
+      ),
+    );
+    try {
+      const result = await processAiSession(sessionId);
+      if (stopRequestedRef.current || result.cancelled) {
+        return;
+      }
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      setAiProgress((prev) =>
+        prev
+          ? finishAiProgress(prev, "Processing complete — opening structure step…")
+          : prev,
+      );
+      await pollSession(sessionId);
+      setStep("generate");
+    } finally {
       setBusy(false);
-      return;
+      setAiProgress(null);
     }
-    setBusy(false);
-    if (result.error) {
-      setError(result.error);
-      return;
-    }
-    await pollSession(sessionId);
-    setStep("generate");
   }
 
   async function runGenerateStructure() {
@@ -629,37 +739,68 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
     setBusy(true);
     setError("");
     setNotice("");
-    await updateAiSessionPrompt(sessionId, userPrompt);
-    await updateAiSessionDiscoverYoutube(
-      sessionId,
-      discoverYoutubeVideos && allowedItemTypes.includes("VIDEO"),
+    setAiProgress(
+      createAiProgress(
+        "Generating course structure",
+        [
+          { id: "settings", label: "Save settings and source summaries" },
+          { id: "ai", label: "AI designs modules and items" },
+          { id: "validate", label: "Validate outline" },
+        ],
+        "Saving your settings…",
+        "Usually about 1–2 minutes",
+      ),
     );
-    await updateAiSessionDiscoverImages(
-      sessionId,
-      discoverImages && allowedItemTypes.includes("LESSON"),
-    );
-    const typesResult = await updateAiSessionAllowedItemTypes(
-      sessionId,
-      allowedItemTypes,
-    );
-    if (typesResult.error) {
+    try {
+      await updateAiSessionPrompt(sessionId, userPrompt);
+      await updateAiSessionDiscoverYoutube(
+        sessionId,
+        discoverYoutubeVideos && allowedItemTypes.includes("VIDEO"),
+      );
+      await updateAiSessionDiscoverImages(
+        sessionId,
+        discoverImages && allowedItemTypes.includes("LESSON"),
+      );
+      const typesResult = await updateAiSessionAllowedItemTypes(
+        sessionId,
+        allowedItemTypes,
+      );
+      if (typesResult.error) {
+        setError(typesResult.error);
+        return;
+      }
+      setAiProgress((prev) =>
+        prev
+          ? activateAiStep(
+              prev,
+              "ai",
+              "Waiting for AI to design modules and items…",
+            )
+          : prev,
+      );
+      const result = await generateCourseStructure(sessionId);
+      if (stopRequestedRef.current || result.cancelled) {
+        return;
+      }
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      setAiProgress((prev) =>
+        prev
+          ? finishAiProgress(
+              completeAiStep(prev, "validate", "Outline ready"),
+              "Structure complete",
+            )
+          : prev,
+      );
+      if (result.blueprint) setBlueprint(result.blueprint);
+      if (result.issues) setIssues(result.issues);
+      setStep("structure_preview");
+    } finally {
       setBusy(false);
-      setError(typesResult.error);
-      return;
+      setAiProgress(null);
     }
-    const result = await generateCourseStructure(sessionId);
-    if (stopRequestedRef.current || result.cancelled) {
-      setBusy(false);
-      return;
-    }
-    setBusy(false);
-    if (result.error) {
-      setError(result.error);
-      return;
-    }
-    if (result.blueprint) setBlueprint(result.blueprint);
-    if (result.issues) setIssues(result.issues);
-    setStep("structure_preview");
   }
 
   async function runApproveAndGenerateContent() {
@@ -717,7 +858,26 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
     setRetryingItem({ moduleIndex, itemIndex });
     setError("");
     setNotice("");
+    const itemLabel =
+      blueprint?.modules[moduleIndex]?.items[itemIndex]?.title ?? "item";
+    setAiProgress(
+      createAiProgress(
+        "Retrying item",
+        [
+          { id: "prepare", label: "Reset item and prepare context" },
+          { id: "ai", label: "AI rewrites content" },
+          { id: "save", label: "Validate and save draft" },
+        ],
+        `Preparing "${itemLabel}"…`,
+        "Usually 30–90 seconds",
+      ),
+    );
     try {
+      setAiProgress((prev) =>
+        prev
+          ? activateAiStep(prev, "ai", `Waiting for AI to rewrite "${itemLabel}"…`)
+          : prev,
+      );
       const result = await retryBlueprintItemContent(sessionId, moduleIndex, itemIndex);
       if (opId !== retryOpRef.current) return;
 
@@ -733,6 +893,9 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
         setGenerationWarnings(warningsFromBlueprint(result.blueprint));
 
         if ("ok" in result && result.ok && "message" in result && result.message) {
+          setAiProgress((prev) =>
+            prev ? finishAiProgress(prev, result.message!) : prev,
+          );
           setNotice(result.message);
           setError("");
           return;
@@ -748,6 +911,7 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
     } finally {
       if (opId === retryOpRef.current) {
         setRetryingItem(null);
+        setAiProgress(null);
       }
     }
   }
@@ -770,27 +934,90 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
 
   async function runRework() {
     if (!sessionId || !reworkInstruction.trim()) return;
+
+    if (selectedModule === null) {
+      setError("Select a module and item in the structure list before reworking.");
+      return;
+    }
+
+    if (selectedItem === null) {
+      const mod = blueprint?.modules[selectedModule];
+      const ok = window.confirm(
+        `No specific item is selected — only the module "${mod?.title ?? "Module"}".\n\nRework will revise the entire module (all items), which takes longer than a single item.\n\nClick a lesson/quiz/video in the list first for faster single-item rework.\n\nContinue with module rework?`,
+      );
+      if (!ok) return;
+    }
+
     setBusy(true);
     setError("");
-    const result = await reworkBlueprintSectionAction(
-      sessionId,
-      reworkInstruction,
-      selectedModule ?? undefined,
-      selectedItem ?? undefined,
+    setNotice("");
+    const isSingleItem = selectedItem !== null;
+    setAiProgress(
+      createAiProgress(
+        isSingleItem ? "Reworking item" : "Reworking module",
+        [
+          { id: "prepare", label: "Prepare instructions and context" },
+          {
+            id: "ai",
+            label: isSingleItem
+              ? "AI revises item content"
+              : "AI revises all items in module",
+          },
+          { id: "save", label: "Validate and save draft" },
+        ],
+        isSingleItem
+          ? `Preparing rework for ${reworkTargetLabel ?? "selected item"}…`
+          : `Preparing module rework for ${reworkTargetLabel ?? "selected module"}…`,
+        isSingleItem ? "Usually 30 seconds to 2 minutes" : "Usually 2–5 minutes",
+      ),
     );
-    setBusy(false);
-    if ("cancelled" in result && result.cancelled) {
-      setNotice("Rework cancelled.");
-      return;
+    try {
+      setAiProgress((prev) =>
+        prev
+          ? activateAiStep(prev, "ai", "Waiting for AI to apply your changes…")
+          : prev,
+      );
+      const result = await reworkBlueprintSectionAction(
+        sessionId,
+        reworkInstruction,
+        selectedModule,
+        selectedItem ?? undefined,
+      );
+      if ("cancelled" in result && result.cancelled) {
+        setNotice("Rework cancelled.");
+        return;
+      }
+      if ("error" in result && result.error) {
+        setError(result.error);
+        return;
+      }
+      setAiProgress((prev) =>
+        prev ? finishAiProgress(prev, "Rework complete") : prev,
+      );
+      if ("blueprint" in result && result.blueprint) setBlueprint(result.blueprint);
+      if ("issues" in result && result.issues) setIssues(result.issues);
+      setReworkInstruction("");
+      setNotice(
+        selectedItem !== null
+          ? "Item rework complete."
+          : "Module rework complete.",
+      );
+    } finally {
+      setBusy(false);
+      setAiProgress(null);
     }
-    if ("error" in result && result.error) {
-      setError(result.error);
-      return;
-    }
-    if ("blueprint" in result && result.blueprint) setBlueprint(result.blueprint);
-    if ("issues" in result && result.issues) setIssues(result.issues);
-    setReworkInstruction("");
   }
+
+  const reworkTargetLabel =
+    blueprint && selectedModule !== null
+      ? selectedItem !== null
+        ? (() => {
+            const mod = blueprint.modules[selectedModule];
+            const item = mod?.items[selectedItem];
+            return item ? `${mod.title} → ${item.title}` : null;
+          })()
+        : blueprint.modules[selectedModule]?.title ?? null
+      : null;
 
   const previewValidation = blueprint
     ? validateBlueprint(blueprint)
@@ -827,22 +1054,31 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
   ];
 
   const showSpinner =
-    step === "processing" || (busy && step !== "generating_content");
+    step === "processing" ||
+    (busy && step !== "generating_content") ||
+    !!retryingItem;
 
   const loadingMessage = getAiStudioLoadingMessage({
     step,
     contentProgress,
     activeWork: busy && step === "preview",
+    reworkScope: busy && step === "preview" ? reworkTargetLabel : null,
   });
+
+  const loadingView = aiProgress ? (
+    <AiLoadingView progress={aiProgress} />
+  ) : (
+    <AiLoadingSpinner
+      label={loadingMessage.label}
+      timeEstimate={loadingMessage.timeEstimate}
+    />
+  );
 
   return (
     <div className="relative max-w-5xl space-y-6">
       {showSpinner && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 rounded-xl bg-white/80">
-          <AiLoadingSpinner
-            label={loadingMessage.label}
-            timeEstimate={loadingMessage.timeEstimate}
-          />
+          {loadingView}
           {sessionId && (
             <button
               type="button"
@@ -1370,10 +1606,7 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
 
       {step === "processing" && (
         <div className="space-y-4 rounded-xl border bg-white p-4">
-          <AiLoadingSpinner
-            label={loadingMessage.label}
-            timeEstimate={loadingMessage.timeEstimate}
-          />
+          {loadingView}
           {sessionId && (
             <div className="flex justify-center">
               <button
@@ -1460,10 +1693,7 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
 
       {step === "generating_content" && (
         <div className="space-y-3 rounded-xl border bg-white p-4">
-          <AiLoadingSpinner
-            label={loadingMessage.label}
-            timeEstimate={loadingMessage.timeEstimate}
-          />
+          {loadingView}
           {sessionId && (
             <div className="flex justify-center">
               <button
@@ -1511,6 +1741,26 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
 
           <div className="rounded-xl border bg-white p-4">
             <label className="block text-sm font-medium">Rework selection</label>
+            <p className="mt-1 text-xs text-storm-navy/65">
+              Click a specific lesson, quiz, or video in the structure list above. Rework
+              only changes that selection — not the whole course.
+            </p>
+            {reworkTargetLabel ? (
+              <p className="mt-2 rounded-lg bg-storm-light-blue/15 px-3 py-2 text-xs text-storm-navy">
+                <span className="font-medium">Target: </span>
+                {reworkTargetLabel}
+                {selectedItem === null && (
+                  <span className="text-amber-800">
+                    {" "}
+                    (whole module — click an item for faster rework)
+                  </span>
+                )}
+              </p>
+            ) : (
+              <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+                Select an item in the structure list to enable rework.
+              </p>
+            )}
             <div className="mt-2 flex gap-2">
               <input
                 type="text"
@@ -1521,9 +1771,14 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
               />
               <button
                 type="button"
-                disabled={busy || !reworkInstruction.trim()}
+                disabled={
+                  busy ||
+                  !reworkInstruction.trim() ||
+                  selectedModule === null ||
+                  (selectedItem === null && !blueprint?.modules[selectedModule]?.items.length)
+                }
                 onClick={runRework}
-                className="min-h-10 shrink-0 rounded-lg border px-4 text-sm font-medium"
+                className="min-h-10 shrink-0 rounded-lg border px-4 text-sm font-medium disabled:opacity-50"
               >
                 Rework
               </button>
