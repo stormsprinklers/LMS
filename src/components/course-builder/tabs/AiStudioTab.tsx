@@ -34,6 +34,7 @@ import {
 } from "@/lib/ai/allowed-item-types";
 import { BlueprintPreview } from "../ai/BlueprintPreview";
 import { AiLoadingSpinner } from "../ai/AiLoadingSpinner";
+import { getAiStudioLoadingMessage } from "@/lib/ai/ai-loading-estimates";
 import { ItemTypePicker } from "../ai/ItemTypePicker";
 import { FileInput } from "@/components/ui/FileInput";
 import { YouTubeIframe } from "@/components/video/YouTubeIframe";
@@ -788,16 +789,18 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
   const showSpinner =
     step === "processing" || (busy && step !== "generating_content");
 
+  const loadingMessage = getAiStudioLoadingMessage({
+    step,
+    contentProgress,
+  });
+
   return (
     <div className="relative max-w-5xl space-y-6">
       {showSpinner && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 rounded-xl bg-white/80">
           <AiLoadingSpinner
-            label={
-              step === "processing"
-                ? "Processing sources…"
-                : "AI is working…"
-            }
+            label={loadingMessage.label}
+            timeEstimate={loadingMessage.timeEstimate}
           />
           {sessionId && (
             <button
@@ -1326,7 +1329,10 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
 
       {step === "processing" && (
         <div className="space-y-4 rounded-xl border bg-white p-4">
-          <AiLoadingSpinner label="Extracting text and transcribing media…" />
+          <AiLoadingSpinner
+            label={loadingMessage.label}
+            timeEstimate={loadingMessage.timeEstimate}
+          />
           {sessionId && (
             <div className="flex justify-center">
               <button
@@ -1414,11 +1420,8 @@ export function AiStudioTab({ course }: { course: CourseBuilderCourse }) {
       {step === "generating_content" && (
         <div className="space-y-3 rounded-xl border bg-white p-4">
           <AiLoadingSpinner
-            label={
-              contentProgress
-                ? `Writing item ${contentProgress.current} of ${contentProgress.total}${contentProgress.label ? ` — ${contentProgress.label}` : ""}`
-                : "Generating content…"
-            }
+            label={loadingMessage.label}
+            timeEstimate={loadingMessage.timeEstimate}
           />
           {sessionId && (
             <div className="flex justify-center">
