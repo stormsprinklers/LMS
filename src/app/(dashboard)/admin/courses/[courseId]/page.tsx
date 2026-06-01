@@ -4,9 +4,9 @@ import { prisma } from "@/lib/db";
 export default async function AdminCourseSlugRedirect({
   params,
 }: {
-  params: Promise<{ slug: string }>;
+  params: Promise<{ courseId: string }>;
 }) {
-  const { slug } = await params;
+  const { courseId: slug } = await params;
   const course = await prisma.course.findUnique({
     where: { slug },
     select: { id: true },
