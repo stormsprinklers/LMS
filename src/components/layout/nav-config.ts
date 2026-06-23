@@ -34,6 +34,12 @@ export const gradingNavItem: NavItem = {
   icon: BookOpen,
 };
 
+export function getExternalCrmUrl(role?: string): string | null {
+  if (role !== "ADMIN" && role !== "MANAGER") return null;
+  const url = process.env.NEXT_PUBLIC_CRM_URL?.trim();
+  return url ? `${url.replace(/\/$/, "")}/settings/employees` : null;
+}
+
 export const adminSubNavItems = [
   { href: "/admin", label: "Overview" },
   { href: "/admin/courses", label: "Courses" },

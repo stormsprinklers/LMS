@@ -31,6 +31,22 @@ export function HeaderBar({
         <Link href="/" className="no-underline md:hidden">
           <Logo width={36} height={36} showText={false} />
         </Link>
+        {(() => {
+          const crmUrl =
+            role === "ADMIN" || role === "MANAGER"
+              ? process.env.NEXT_PUBLIC_CRM_URL?.replace(/\/$/, "")
+              : null;
+          return crmUrl ? (
+            <a
+              href={`${crmUrl}/settings/employees`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hidden text-sm font-medium text-storm-navy underline-offset-2 hover:underline sm:inline"
+            >
+              CRM
+            </a>
+          ) : null;
+        })()}
       </div>
       <div className="flex shrink-0 items-center gap-2">
         <NotificationsBell count={unread} />

@@ -8,7 +8,8 @@ export default auth((req) => {
   const isPublic =
     publicPaths.some((p) => pathname.startsWith(p)) ||
     pathname.startsWith("/api/auth") ||
-    pathname.startsWith("/api/webhooks");
+    pathname.startsWith("/api/webhooks") ||
+    pathname.startsWith("/api/integrations");
 
   if (!req.auth && !isPublic) {
     const login = new URL("/login", req.nextUrl.origin);
