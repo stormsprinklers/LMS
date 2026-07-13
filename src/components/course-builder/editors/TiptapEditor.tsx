@@ -157,7 +157,9 @@ export const TiptapEditor = forwardRef<
   useImperativeHandle(ref, () => ({
     getContent: () => {
       if (!editor) return null;
-      return { json: editor.getJSON(), html: editor.getHTML() };
+      // Plain clones only — TipTap objects must not cross the Server Action boundary.
+      const json = JSON.parse(JSON.stringify(editor.getJSON())) as unknown;
+      return { json, html: editor.getHTML() };
     },
   }));
 

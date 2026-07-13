@@ -338,9 +338,34 @@ export async function updateCourseItem(
   return { success: true as const };
 }
 
+const EMPTY_LESSON_DOC = {
+  type: "doc",
+  content: [{ type: "paragraph" }],
+};
+
+function asPlainJsonValue(value: unknown): Prisma.InputJsonValue {
+  if (typeof value === "string") {
+    try {
+      return JSON.parse(value) as Prisma.InputJsonValue;
+    } catch {
+      return EMPTY_LESSON_DOC as Prisma.InputJsonValue;
+    }
+  }
+  if (value == null) {
+    return EMPTY_LESSON_DOC as Prisma.InputJsonValue;
+  }
+  // Re-parse to drop any Flight/client proxies before Prisma stores the JSON.
+  try {
+    return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+  } catch {
+    return EMPTY_LESSON_DOC as Prisma.InputJsonValue;
+  }
+}
+
 export async function updateLessonContent(
   itemId: string,
   data: {
+    /** TipTap doc object, or a JSON string of that doc. */
     bodyJson?: unknown;
     bodyHtml?: string;
     completionRule?: string;
@@ -358,8 +383,8 @@ export async function updateLessonContent(
     if (item.itemType !== "LESSON") return { error: "Not a lesson item." };
 
     const lessonData = {
-      bodyJson: (data.bodyJson ?? EMPTY_LESSON_DOC) as Prisma.InputJsonValue,
-      bodyHtml: data.bodyHtml ?? "",
+      bodyJson: asPlainJsonValue(data.bodyJson ?? EMPTY_LESSON_DOC),
+      bodyHtml: typeof data.bodyHtml === "string" ? data.bodyHtml : "",
       completionRule: data.completionRule ?? item.completionRule ?? "viewed",
       minimumTimeSeconds: data.minimumTimeSeconds ?? null,
     };
@@ -400,11 +425,6 @@ export async function updateLessonContent(
     return { error: message };
   }
 }
-
-const EMPTY_LESSON_DOC = {
-  type: "doc",
-  content: [{ type: "paragraph" }],
-};
 
 export async function updateVideoLessonContent(
   itemId: string,

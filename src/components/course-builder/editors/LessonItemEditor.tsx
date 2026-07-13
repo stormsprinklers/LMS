@@ -56,8 +56,12 @@ export function LessonItemEditor({
 
     try {
       const snapshot = editorRef.current?.getContent();
-      const json = snapshot?.json ?? bodyJson ?? EMPTY_DOC;
-      const html = snapshot?.html ?? bodyHtml;
+      // TipTap docs can carry non-Flight-serializable values; stringify so the
+      // server action receives plain JSON (avoids "toStringTag" client-ref errors).
+      const json = JSON.parse(
+        JSON.stringify(snapshot?.json ?? bodyJson ?? EMPTY_DOC),
+      ) as unknown;
+      const html = String(snapshot?.html ?? bodyHtml ?? "");
 
       const fd = new FormData(e.currentTarget);
       const completionRule = String(fd.get("completionRule"));
@@ -74,7 +78,7 @@ export function LessonItemEditor({
       });
 
       const contentResult = await updateLessonContent(item.id, {
-        bodyJson: json,
+        bodyJson: JSON.stringify(json),
         bodyHtml: html,
         completionRule,
         minimumTimeSeconds: minimumTimeSeconds ?? undefined,
