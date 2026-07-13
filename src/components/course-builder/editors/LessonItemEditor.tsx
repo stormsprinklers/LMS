@@ -54,48 +54,52 @@ export function LessonItemEditor({
     setError("");
     setSaved(false);
 
-    const snapshot = editorRef.current?.getContent();
-    const json = snapshot?.json ?? bodyJson ?? EMPTY_DOC;
-    const html = snapshot?.html ?? bodyHtml;
+    try {
+      const snapshot = editorRef.current?.getContent();
+      const json = snapshot?.json ?? bodyJson ?? EMPTY_DOC;
+      const html = snapshot?.html ?? bodyHtml;
 
-    const fd = new FormData(e.currentTarget);
-    const completionRule = String(fd.get("completionRule"));
-    const minimumRaw = fd.get("minimumTimeSeconds");
-    const minimumTimeSeconds =
-      minimumRaw === "" || minimumRaw === null
-        ? null
-        : Number(minimumRaw);
+      const fd = new FormData(e.currentTarget);
+      const completionRule = String(fd.get("completionRule"));
+      const minimumRaw = fd.get("minimumTimeSeconds");
+      const minimumTimeSeconds =
+        minimumRaw === "" || minimumRaw === null ? null : Number(minimumRaw);
 
-    const itemResult = await updateCourseItem(item.id, {
-      title: String(fd.get("title")),
-      isRequired: fd.get("isRequired") === "on",
-      estimatedMinutes: Number(fd.get("estimatedMinutes")) || undefined,
-      completionRule,
-      status: String(fd.get("status")) as ContentStatus,
-    });
+      await updateCourseItem(item.id, {
+        title: String(fd.get("title")),
+        isRequired: fd.get("isRequired") === "on",
+        estimatedMinutes: Number(fd.get("estimatedMinutes")) || undefined,
+        completionRule,
+        status: String(fd.get("status")) as ContentStatus,
+      });
 
-    const contentResult = await updateLessonContent(item.id, {
-      bodyJson: json,
-      bodyHtml: html,
-      completionRule,
-      minimumTimeSeconds: minimumTimeSeconds ?? undefined,
-    });
+      const contentResult = await updateLessonContent(item.id, {
+        bodyJson: json,
+        bodyHtml: html,
+        completionRule,
+        minimumTimeSeconds: minimumTimeSeconds ?? undefined,
+      });
 
-    if ("error" in (contentResult ?? {}) && contentResult?.error) {
-      setBusy(false);
-      setError(contentResult.error);
+      if (contentResult && "error" in contentResult && contentResult.error) {
+        setError(contentResult.error);
+        resolveSave(false);
+        return;
+      }
+
+      setBodyJson(json);
+      setBodyHtml(html);
+      setSaved(true);
+      resolveSave(true);
+      onSaved?.();
+      router.refresh();
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to save lesson. Try again.";
+      setError(message);
       resolveSave(false);
-      return;
+    } finally {
+      setBusy(false);
     }
-
-    setBusy(false);
-
-    setBodyJson(json);
-    setBodyHtml(html);
-    setSaved(true);
-    resolveSave(true);
-    onSaved?.();
-    router.refresh();
   }
 
   return (
@@ -106,6 +110,10 @@ export function LessonItemEditor({
       </label>
       <div>
         <p className="text-sm font-medium text-storm-navy">Content</p>
+        <p className="mb-1 text-xs text-storm-navy/60">
+          Use headings, lists, photos, links, and YouTube embeds. Changes save when you click Save
+          lesson.
+        </p>
         <TiptapEditor
           ref={editorRef}
           key={item.id}

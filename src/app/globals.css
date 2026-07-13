@@ -57,6 +57,19 @@ body {
   margin-top: 0;
 }
 
+.lesson-content h1 {
+  font-family: var(--font-title), system-ui, sans-serif;
+  font-size: 1.75rem;
+  font-weight: 700;
+  line-height: 1.25;
+  margin: 1.5rem 0 0.75rem;
+  color: var(--storm-navy);
+}
+
+.lesson-content h1:first-child {
+  margin-top: 0;
+}
+
 .lesson-content h3 {
   font-family: var(--font-title), system-ui, sans-serif;
   font-size: 1.125rem;
@@ -138,4 +151,72 @@ body {
   font-size: 0.875rem;
   color: color-mix(in srgb, var(--storm-navy) 55%, transparent);
   font-style: italic;
+}
+
+/* TipTap lesson builder editor */
+.tiptap-editor-body {
+  max-width: none;
+}
+
+.tiptap-editor-body ul {
+  list-style-type: disc;
+}
+
+.tiptap-editor-body ol {
+  list-style-type: decimal;
+}
+
+.tiptap-editor-body a.tiptap-link,
+.tiptap-editor-body a {
+  color: var(--storm-medium-blue);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.tiptap-editor-body img.tiptap-image,
+.tiptap-editor-body img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 1rem 0;
+  border-radius: 0.5rem;
+}
+
+.tiptap-editor-body .tiptap-youtube,
+.tiptap-editor-body div[data-youtube-video] {
+  margin: 1rem 0;
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+  border-radius: 0.5rem;
+  background: var(--storm-navy);
+}
+
+.tiptap-editor-body div[data-youtube-video] iframe,
+.tiptap-editor-body .tiptap-youtube iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.tiptap-editor-body blockquote {
+  margin: 1rem 0;
+  padding-left: 1rem;
+  border-left: 3px solid var(--storm-medium-blue);
+  color: color-mix(in srgb, var(--storm-navy) 75%, transparent);
+}
+
+.tiptap-editor-body hr {
+  margin: 1.25rem 0;
+  border: 0;
+  border-top: 1px solid color-mix(in srgb, var(--storm-light-blue) 80%, #94a3b8);
+}
+
+.tiptap-editor-body p.is-editor-empty:first-child::before {
+  color: color-mix(in srgb, var(--storm-navy) 40%, transparent);
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
 }

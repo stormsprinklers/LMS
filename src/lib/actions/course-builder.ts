@@ -347,44 +347,58 @@ export async function updateLessonContent(
     minimumTimeSeconds?: number | null;
   },
 ) {
-  const session = await requireManageCourseItem(itemId);
-  const role = (session.user as { role?: string }).role;
-  const item = await prisma.courseItem.findUnique({
-    where: { id: itemId },
-    include: { lessonContent: true },
-  });
-  if (!item) return { error: "Item not found." };
-  if (item.itemType !== "LESSON") return { error: "Not a lesson item." };
-
-  const lessonData = {
-    bodyJson: (data.bodyJson ?? EMPTY_LESSON_DOC) as Prisma.InputJsonValue,
-    bodyHtml: data.bodyHtml ?? "",
-    completionRule: data.completionRule ?? item.completionRule ?? "viewed",
-    minimumTimeSeconds: data.minimumTimeSeconds ?? null,
-  };
-
-  if (!item.lessonContentId) {
-    const lc = await prisma.lessonContent.create({ data: lessonData });
-    await prisma.courseItem.update({
+  try {
+    const session = await requireManageCourseItem(itemId);
+    const role = (session.user as { role?: string }).role;
+    const item = await prisma.courseItem.findUnique({
       where: { id: itemId },
-      data: { lessonContentId: lc.id },
+      include: { lessonContent: true },
     });
-  } else {
-    await prisma.lessonContent.update({
-      where: { id: item.lessonContentId },
-      data: lessonData,
-    });
-  }
+    if (!item) return { error: "Item not found." };
+    if (item.itemType !== "LESSON") return { error: "Not a lesson item." };
 
-  await markUnpublished(item.courseId);
-  revalidateCourse(item.courseId);
-  void syncCourseLessonMediaToLibrary({
-    courseItemId: itemId,
-    userId: session.user.id,
-    role,
-    bodyHtml: lessonData.bodyHtml,
-  });
-  return { success: true as const };
+    const lessonData = {
+      bodyJson: (data.bodyJson ?? EMPTY_LESSON_DOC) as Prisma.InputJsonValue,
+      bodyHtml: data.bodyHtml ?? "",
+      completionRule: data.completionRule ?? item.completionRule ?? "viewed",
+      minimumTimeSeconds: data.minimumTimeSeconds ?? null,
+    };
+
+    if (!item.lessonContentId) {
+      const lc = await prisma.lessonContent.create({ data: lessonData });
+      await prisma.courseItem.update({
+        where: { id: itemId },
+        data: { lessonContentId: lc.id },
+      });
+    } else {
+      await prisma.lessonContent.update({
+        where: { id: item.lessonContentId },
+        data: lessonData,
+      });
+    }
+
+    await markUnpublished(item.courseId);
+    revalidateCourse(item.courseId);
+    void syncCourseLessonMediaToLibrary({
+      courseItemId: itemId,
+      userId: session.user.id,
+      role,
+      bodyHtml: lessonData.bodyHtml,
+    });
+    return { success: true as const };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to save lesson content.";
+    // Next.js auth redirects throw a special digest — rethrow those.
+    if (
+      typeof err === "object" &&
+      err !== null &&
+      "digest" in err &&
+      String((err as { digest?: string }).digest).startsWith("NEXT_")
+    ) {
+      throw err;
+    }
+    return { error: message };
+  }
 }
 
 const EMPTY_LESSON_DOC = {
