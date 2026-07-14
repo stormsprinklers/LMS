@@ -355,6 +355,23 @@ function SortableItemRow({
           {item.isRequired ? " · Required" : ""}
           · {TRACK_LABELS[item.track]}
         </span>
+        {(item.itemType === "QUIZ" || item.itemType === "EXAM") && (
+          <span
+            className={`mt-0.5 block truncate text-xs ${
+              item.examId && item.exam
+                ? "text-storm-medium-blue"
+                : "font-medium text-amber-700"
+            }`}
+          >
+            {item.examId && item.exam
+              ? `Linked quiz: ${item.exam.title}${
+                  item.exam._count?.questions != null
+                    ? ` · ${item.exam._count.questions} q`
+                    : ""
+                }`
+              : "Not linked to a quiz"}
+          </span>
+        )}
       </button>
       <span className="shrink-0 text-xs text-storm-navy/40">{item.status}</span>
       <button type="button" onClick={onDuplicate} className="text-xs text-storm-medium-blue">

@@ -54,6 +54,12 @@ export type CourseBuilderItem = {
   track: CourseItemTrack;
   examId?: string | null;
   legacyLessonId?: string | null;
+  exam?: {
+    id: string;
+    title: string;
+    published?: boolean;
+    _count?: { questions: number };
+  } | null;
 };
 
 export type CourseBuilderSettings = {

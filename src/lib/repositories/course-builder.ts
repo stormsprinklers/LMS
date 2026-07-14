@@ -23,6 +23,14 @@ const courseInclude = {
           track: true,
           examId: true,
           legacyLessonId: true,
+          exam: {
+            select: {
+              id: true,
+              title: true,
+              published: true,
+              _count: { select: { questions: true } },
+            },
+          },
         },
       },
     },

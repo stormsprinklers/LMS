@@ -119,6 +119,42 @@ export function ExamItemEditor({ item }: { item: Item }) {
 
   return (
     <form ref={formRef} onSubmit={handleSubmit} {...formDirtyProps} className="space-y-3">
+      <div
+        className={`rounded-lg border p-3 ${
+          examId
+            ? "border-storm-light-blue/50 bg-storm-light-grey/40"
+            : "border-amber-200 bg-amber-50"
+        }`}
+      >
+        <p className="text-xs font-semibold uppercase tracking-wide text-storm-navy/60">
+          Linked quiz
+        </p>
+        {examId ? (
+          <div className="mt-1 space-y-1">
+            <p className="text-sm font-medium text-storm-navy">
+              {item.exam?.title ?? item.title ?? "Linked quiz"}
+            </p>
+            <p className="text-xs text-storm-navy/60">
+              {item.exam?._count?.questions ?? 0} questions
+              {item.exam && item.exam.title !== item.title
+                ? ` · Curriculum item title: “${item.title}”`
+                : null}
+            </p>
+            <Link
+              href={`/admin/exams/${examId}`}
+              className="inline-block text-sm font-medium text-storm-medium-blue no-underline hover:underline"
+            >
+              Open full quiz builder →
+            </Link>
+          </div>
+        ) : (
+          <p className="mt-1 text-sm text-amber-900">
+            Not linked to any quiz. Learners won&apos;t have questions until you link or create
+            one.
+          </p>
+        )}
+      </div>
+
       <label className="block text-sm">
         Title
         <input name="title" defaultValue={item.title} required className={inputClass} />
@@ -129,10 +165,6 @@ export function ExamItemEditor({ item }: { item: Item }) {
       {examId && (
         <div className="space-y-3 rounded-lg border border-storm-light-blue/40 bg-storm-light-grey/30 p-3">
           <p className="text-sm font-medium text-storm-navy">Exam settings</p>
-          <p className="text-xs text-storm-navy/60">
-            Linked: {item.exam?.title ?? "Linked exam"} ·{" "}
-            {item.exam?._count?.questions ?? 0} questions
-          </p>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <label className="block text-sm">
               Pass %
@@ -174,12 +206,6 @@ export function ExamItemEditor({ item }: { item: Item }) {
           <p className="text-xs text-storm-navy/60">
             How many times each learner may submit this exam for a final score.
           </p>
-          <Link
-            href={`/admin/exams/${examId}`}
-            className="inline-block text-sm font-medium text-storm-medium-blue no-underline hover:underline"
-          >
-            Open full exam builder (questions) →
-          </Link>
           <div>
             <button
               type="button"
@@ -217,7 +243,6 @@ export function ExamItemEditor({ item }: { item: Item }) {
       )}
       {!examId ? (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-          No quiz linked yet.{" "}
           <button
             type="button"
             className="font-semibold underline"
