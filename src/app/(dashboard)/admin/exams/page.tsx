@@ -20,8 +20,8 @@ export default async function AdminExamsPage() {
         title="Exams"
         description={
           isManager(role)
-            ? "Exams you created. Edit questions and assignments; archive and delete are admin-only."
-            : "Create standalone or course-linked exams, assign learners, and manage questions."
+            ? "Standalone exams you created. Course quizzes live in the course builder."
+            : "Standalone exams only. Quizzes linked inside a course are edited from the course builder."
         }
         action={
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">

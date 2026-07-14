@@ -232,7 +232,8 @@ export const TiptapEditor = forwardRef<
 
   return (
     <div className="rounded-lg border border-storm-light-blue/60 bg-white">
-      <div className="flex flex-wrap items-center gap-1 border-b border-storm-light-blue/40 p-2">
+      <div className="sticky top-0 z-20 border-b border-storm-light-blue/40 bg-white/95 p-2 shadow-sm backdrop-blur-sm supports-[backdrop-filter]:bg-white/90">
+        <div className="flex flex-wrap items-center gap-1">
         <ToolbarBtn
           onClick={() => ed.chain().focus().toggleBold().run()}
           active={ed.isActive("bold")}
@@ -346,6 +347,12 @@ export const TiptapEditor = forwardRef<
           label="Redo"
           title="Redo"
         />
+        </div>
+        {(toolbarError || uploading) && (
+          <p className="mt-1.5 text-xs text-storm-navy/70">
+            {uploading ? "Uploading image…" : toolbarError}
+          </p>
+        )}
       </div>
       <input
         ref={fileInputRef}
@@ -358,11 +365,6 @@ export const TiptapEditor = forwardRef<
           if (file) void uploadImageFile(file);
         }}
       />
-      {(toolbarError || uploading) && (
-        <p className="border-b border-storm-light-blue/30 px-3 py-1.5 text-xs text-storm-navy/70">
-          {uploading ? "Uploading image…" : toolbarError}
-        </p>
-      )}
       <EditorContent editor={ed} />
     </div>
   );

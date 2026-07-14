@@ -132,6 +132,23 @@ export function CurriculumTab({
     router.refresh();
   }
 
+  async function onLinkExam(
+    type: "QUIZ" | "EXAM",
+    track: CourseItemTrack,
+    examId: string,
+  ) {
+    if (!pickerModuleId) return;
+    const result = await createCourseItem(pickerModuleId, type, "", track, {
+      linkExamId: examId,
+    });
+    if (result && "error" in result && result.error) {
+      window.alert(result.error);
+      return;
+    }
+    setPickerModuleId(null);
+    router.refresh();
+  }
+
   return (
     <div className="flex flex-col gap-4 lg:flex-row">
       <div className="min-w-0 flex-1">
@@ -203,8 +220,10 @@ export function CurriculumTab({
 
       <AddContentPicker
         open={!!pickerModuleId}
+        courseId={course.id}
         onClose={() => setPickerModuleId(null)}
         onPick={onPickItem}
+        onLinkExam={onLinkExam}
       />
     </div>
   );

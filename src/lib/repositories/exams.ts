@@ -65,7 +65,13 @@ export async function getExamsForUser(userId: string): Promise<Exam[]> {
   const result: Exam[] = [];
 
   const assigned = await prisma.exam.findMany({
-    where: { published: true, archived: false, assignments: { some: { userId } } },
+    where: {
+      published: true,
+      archived: false,
+      // Curriculum quizzes stay inside the course, not the general /exams list
+      courseItem: null,
+      assignments: { some: { userId } },
+    },
     include: {
       course: true,
       lesson: { include: { module: { include: { course: true } } } },

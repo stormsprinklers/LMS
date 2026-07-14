@@ -1,10 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { updateCourseItem } from "@/lib/actions/course-builder";
+import {
+  linkCourseItemToExam,
+  listLinkableExams,
+  updateCourseItem,
+} from "@/lib/actions/course-builder";
 import { updateExam } from "@/lib/actions/exams-admin";
 import { useRouter } from "next/navigation";
-import { useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import { useRef } from "react";
 import { useBuilderFormDirty } from "../useBuilderFormDirty";
 import type { ContentStatus } from "@prisma/client";
 
@@ -13,6 +18,7 @@ const inputClass =
 
 type Item = {
   id: string;
+  courseId: string;
   title: string;
   isRequired: boolean;
   estimatedMinutes: number | null;
@@ -33,28 +39,61 @@ export function ExamItemEditor({ item }: { item: Item }) {
   const formRef = useRef<HTMLFormElement>(null);
   const { resolveSave, formDirtyProps } = useBuilderFormDirty(`exam-${item.id}`, formRef);
   const [busy, setBusy] = useState(false);
+  const [linking, setLinking] = useState(false);
+  const [showLink, setShowLink] = useState(false);
+  const [linkables, setLinkables] = useState<
+    Array<{ id: string; title: string; _count: { questions: number } }>
+  >([]);
+  const [linkExamId, setLinkExamId] = useState("");
   const examId = item.examId ?? item.exam?.id;
+
+  useEffect(() => {
+    if (!showLink) return;
+    let cancelled = false;
+    void listLinkableExams(item.courseId).then((rows) => {
+      if (cancelled) return;
+      // Include the currently linked exam in the selector
+      const merged = [...rows];
+      if (item.exam && !merged.some((r) => r.id === item.exam!.id)) {
+        merged.unshift({
+          id: item.exam.id,
+          title: item.exam.title,
+          courseId: item.courseId,
+          published: true,
+          _count: { questions: item.exam._count?.questions ?? 0 },
+          course: null,
+        });
+      }
+      setLinkables(merged);
+      setLinkExamId(item.examId ?? "");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [showLink, item.courseId, item.exam, item.examId]);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setBusy(true);
     const fd = new FormData(e.currentTarget);
     try {
-    await updateCourseItem(item.id, {
-      title: String(fd.get("title")),
-      isRequired: fd.get("isRequired") === "on",
-      estimatedMinutes: Number(fd.get("estimatedMinutes")) || undefined,
-      status: String(fd.get("status")) as ContentStatus,
-    });
-    if (examId) {
-      await updateExam(examId, {
-        attemptsAllowed: Number(fd.get("attemptsAllowed")),
-        passingScore: Number(fd.get("passingScore")),
-        timeLimitMinutes: Number(fd.get("timeLimitMinutes")),
+      const title = String(fd.get("title"));
+      await updateCourseItem(item.id, {
+        title,
+        isRequired: fd.get("isRequired") === "on",
+        estimatedMinutes: Number(fd.get("estimatedMinutes")) || undefined,
+        status: String(fd.get("status")) as ContentStatus,
+        syncExamTitle: true,
       });
-    }
-    resolveSave(true);
-    router.refresh();
+      if (examId) {
+        await updateExam(examId, {
+          attemptsAllowed: Number(fd.get("attemptsAllowed")),
+          passingScore: Number(fd.get("passingScore")),
+          timeLimitMinutes: Number(fd.get("timeLimitMinutes")),
+        });
+      }
+      resolveSave(true);
+      router.refresh();
     } catch {
       resolveSave(false);
     } finally {
@@ -62,17 +101,36 @@ export function ExamItemEditor({ item }: { item: Item }) {
     }
   }
 
+  async function handleLinkExisting() {
+    if (!linkExamId) return;
+    setLinking(true);
+    try {
+      const result = await linkCourseItemToExam(item.id, linkExamId);
+      if (result && "error" in result && result.error) {
+        window.alert(result.error);
+        return;
+      }
+      setShowLink(false);
+      router.refresh();
+    } finally {
+      setLinking(false);
+    }
+  }
+
   return (
     <form ref={formRef} onSubmit={handleSubmit} {...formDirtyProps} className="space-y-3">
       <label className="block text-sm">
-        Display title (in curriculum)
+        Title
         <input name="title" defaultValue={item.title} required className={inputClass} />
       </label>
+      <p className="text-xs text-storm-navy/60">
+        Saved to both the curriculum item and the linked quiz/exam (keeps titles in sync).
+      </p>
       {examId && (
         <div className="space-y-3 rounded-lg border border-storm-light-blue/40 bg-storm-light-grey/30 p-3">
           <p className="text-sm font-medium text-storm-navy">Exam settings</p>
           <p className="text-xs text-storm-navy/60">
-            {item.exam?.title ?? "Linked exam"} ·{" "}
+            Linked: {item.exam?.title ?? "Linked exam"} ·{" "}
             {item.exam?._count?.questions ?? 0} questions
           </p>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -120,10 +178,79 @@ export function ExamItemEditor({ item }: { item: Item }) {
             href={`/admin/exams/${examId}`}
             className="inline-block text-sm font-medium text-storm-medium-blue no-underline hover:underline"
           >
-            Open full exam builder (questions, assignments) →
+            Open full exam builder (questions) →
           </Link>
+          <div>
+            <button
+              type="button"
+              onClick={() => setShowLink((v) => !v)}
+              className="text-sm font-medium text-storm-medium-blue hover:underline"
+            >
+              {showLink ? "Hide link picker" : "Link a different existing quiz/exam…"}
+            </button>
+            {showLink ? (
+              <div className="mt-2 space-y-2">
+                <select
+                  className={inputClass}
+                  value={linkExamId}
+                  onChange={(e) => setLinkExamId(e.target.value)}
+                >
+                  <option value="">Choose…</option>
+                  {linkables.map((exam) => (
+                    <option key={exam.id} value={exam.id}>
+                      {exam.title} · {exam._count.questions} questions
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  disabled={!linkExamId || linking}
+                  onClick={() => void handleLinkExisting()}
+                  className="min-h-9 rounded-lg bg-storm-navy px-3 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  {linking ? "Linking…" : "Use selected quiz"}
+                </button>
+              </div>
+            ) : null}
+          </div>
         </div>
       )}
+      {!examId ? (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          No quiz linked yet.{" "}
+          <button
+            type="button"
+            className="font-semibold underline"
+            onClick={() => setShowLink(true)}
+          >
+            Link an existing quiz/exam
+          </button>
+          {showLink ? (
+            <div className="mt-2 space-y-2">
+              <select
+                className={inputClass}
+                value={linkExamId}
+                onChange={(e) => setLinkExamId(e.target.value)}
+              >
+                <option value="">Choose…</option>
+                {linkables.map((exam) => (
+                  <option key={exam.id} value={exam.id}>
+                    {exam.title} · {exam._count.questions} questions
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                disabled={!linkExamId || linking}
+                onClick={() => void handleLinkExisting()}
+                className="min-h-9 rounded-lg bg-storm-navy px-3 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                {linking ? "Linking…" : "Link selected"}
+              </button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       <label className="block text-sm">
         Estimated minutes
         <input

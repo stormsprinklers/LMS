@@ -89,6 +89,10 @@ export function PreviewPublishTab({ course }: { course: CourseBuilderCourse }) {
         </button>
       </div>
       {error && <p className="text-sm text-red-600">{error}</p>}
+      <p className="text-sm text-storm-navy/60">
+        Publishing marks every module, curriculum item, and linked quiz/exam as published. Course
+        quizzes stay available inside the course only (not on the general Exams page).
+      </p>
       {!ok && (
         <p className="text-sm text-storm-navy/60">Fix all errors before publishing.</p>
       )}

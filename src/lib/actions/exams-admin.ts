@@ -382,7 +382,12 @@ export async function listExamsAdmin() {
   const own = managerOwnsContentFilter(session.user.id, role);
   const [active, archived] = await Promise.all([
     prisma.exam.findMany({
-      where: { archived: false, ...own },
+      where: {
+        archived: false,
+        // Curriculum-linked quizzes are managed from the course builder
+        courseItem: null,
+        ...own,
+      },
       orderBy: { updatedAt: "desc" },
       include: {
         course: { select: { id: true, slug: true, title: true } },
@@ -391,7 +396,7 @@ export async function listExamsAdmin() {
       },
     }),
     prisma.exam.findMany({
-      where: { archived: true, ...own },
+      where: { archived: true, courseItem: null, ...own },
       orderBy: { archivedAt: "desc" },
       include: {
         course: { select: { id: true, slug: true, title: true } },

@@ -28,6 +28,15 @@ function revalidateCourse(courseId: string, slug?: string) {
   }
 }
 
+const ITEM_DEFAULT_TITLE: Record<CourseItemType, string> = {
+  LESSON: "New Lesson",
+  VIDEO: "New Video",
+  QUIZ: "New Quiz",
+  EXAM: "New Exam",
+  SKILL_CHECK: "New Skill Check",
+  SCENARIO: "New Scenario",
+};
+
 async function markUnpublished(courseId: string) {
   const course = await prisma.course.findUnique({
     where: { id: courseId },
@@ -227,6 +236,7 @@ export async function createCourseItem(
   itemType: CourseItemType,
   title: string,
   track?: CourseItemTrack,
+  options?: { linkExamId?: string },
 ) {
   const session = await requireManageModule(moduleId);
   const mod = await prisma.module.findUnique({
@@ -242,6 +252,7 @@ export async function createCourseItem(
   let skillCheckId: string | undefined;
   let scenarioId: string | undefined;
   let completionRule = "manual";
+  let itemTitle = title || ITEM_DEFAULT_TITLE[itemType];
 
   if (itemType === "LESSON") {
     const lc = await prisma.lessonContent.create({ data: { completionRule: "viewed" } });
@@ -252,18 +263,39 @@ export async function createCourseItem(
     videoLessonId = vl.id;
     completionRule = "watch_percent";
   } else if (itemType === "EXAM" || itemType === "QUIZ") {
-    const exam = await prisma.exam.create({
-      data: {
-        title: title || "New Exam",
-        courseId: mod.courseId,
-        passingScore: 80,
-        timeLimitMinutes: 30,
-        attemptsAllowed: 3,
-        published: false,
-        createdById: session.user.id,
-      },
-    });
-    examId = exam.id;
+    if (options?.linkExamId) {
+      const existing = await prisma.exam.findFirst({
+        where: {
+          id: options.linkExamId,
+          archived: false,
+          courseItem: null,
+        },
+        select: { id: true, title: true },
+      });
+      if (!existing) {
+        return { error: "That quiz/exam is unavailable or already linked to a course item." };
+      }
+      examId = existing.id;
+      if (!title.trim()) itemTitle = existing.title;
+      await prisma.exam.update({
+        where: { id: existing.id },
+        data: { courseId: mod.courseId },
+      });
+    } else {
+      const exam = await prisma.exam.create({
+        data: {
+          title: title || (itemType === "QUIZ" ? "New Quiz" : "New Exam"),
+          courseId: mod.courseId,
+          passingScore: 80,
+          timeLimitMinutes: 30,
+          attemptsAllowed: 3,
+          published: false,
+          createdById: session.user.id,
+        },
+      });
+      examId = exam.id;
+      if (!title.trim()) itemTitle = exam.title;
+    }
     completionRule = "quiz_passed";
   } else if (itemType === "SKILL_CHECK") {
     const sc = await prisma.skillCheck.create({ data: {} });
@@ -290,7 +322,7 @@ export async function createCourseItem(
       courseId: mod.courseId,
       moduleId,
       itemType,
-      title: title || ITEM_DEFAULT_TITLE[itemType],
+      title: itemTitle,
       sortOrder: count,
       track: defaultTrack,
       completionRule,
@@ -308,14 +340,70 @@ export async function createCourseItem(
   return { itemId: item.id };
 }
 
-const ITEM_DEFAULT_TITLE: Record<CourseItemType, string> = {
-  LESSON: "New Lesson",
-  VIDEO: "New Video",
-  QUIZ: "New Quiz",
-  EXAM: "New Exam",
-  SKILL_CHECK: "New Skill Check",
-  SCENARIO: "New Scenario",
-};
+export async function listLinkableExams(courseId: string) {
+  await requireManageCourse(courseId);
+  return prisma.exam.findMany({
+    where: {
+      archived: false,
+      courseItem: null,
+    },
+    orderBy: { title: "asc" },
+    select: {
+      id: true,
+      title: true,
+      courseId: true,
+      published: true,
+      _count: { select: { questions: true } },
+      course: { select: { id: true, title: true } },
+    },
+  });
+}
+
+/** Attach (or replace) an existing exam on a QUIZ/EXAM curriculum item. */
+export async function linkCourseItemToExam(itemId: string, examId: string) {
+  await requireManageCourseItem(itemId);
+  const item = await prisma.courseItem.findUnique({
+    where: { id: itemId },
+    select: { id: true, courseId: true, itemType: true, examId: true, title: true },
+  });
+  if (!item) return { error: "Item not found" };
+  if (item.itemType !== "QUIZ" && item.itemType !== "EXAM") {
+    return { error: "Only quiz/exam items can link an exam." };
+  }
+
+  const exam = await prisma.exam.findFirst({
+    where: {
+      id: examId,
+      archived: false,
+      OR: [{ courseItem: null }, { courseItem: { id: itemId } }],
+    },
+    select: { id: true, title: true },
+  });
+  if (!exam) {
+    return { error: "That quiz/exam is unavailable or already linked elsewhere." };
+  }
+
+  await prisma.$transaction([
+    prisma.exam.update({
+      where: { id: exam.id },
+      data: { courseId: item.courseId },
+    }),
+    prisma.courseItem.update({
+      where: { id: itemId },
+      data: {
+        examId: exam.id,
+        // Prefer the real exam title when switching links
+        title: exam.title,
+        completionRule: "quiz_passed",
+      },
+    }),
+  ]);
+
+  await markUnpublished(item.courseId);
+  revalidateCourse(item.courseId);
+  revalidatePath(`/admin/exams/${exam.id}`);
+  return { success: true as const };
+}
 
 export async function updateCourseItem(
   itemId: string,
@@ -326,13 +414,37 @@ export async function updateCourseItem(
     completionRule?: string;
     status?: ContentStatus;
     track?: CourseItemTrack;
+    /** When true (default for quiz/exam), keep Exam.title in sync with the curriculum title. */
+    syncExamTitle?: boolean;
   },
 ) {
   await requireManageCourseItem(itemId);
+  const { syncExamTitle = true, ...itemData } = data;
   const item = await prisma.courseItem.update({
     where: { id: itemId },
-    data,
+    data: itemData,
+    select: {
+      id: true,
+      courseId: true,
+      examId: true,
+      itemType: true,
+      title: true,
+    },
   });
+
+  if (
+    syncExamTitle &&
+    item.examId &&
+    itemData.title &&
+    (item.itemType === "QUIZ" || item.itemType === "EXAM")
+  ) {
+    await prisma.exam.update({
+      where: { id: item.examId },
+      data: { title: itemData.title },
+    });
+    revalidatePath(`/admin/exams/${item.examId}`);
+  }
+
   await markUnpublished(item.courseId);
   revalidateCourse(item.courseId);
   return { success: true as const };
@@ -768,13 +880,39 @@ export async function publishCourse(courseId: string) {
     },
   });
 
-  await prisma.courseItem.updateMany({
-    where: { courseId, status: "DRAFT" },
+  await prisma.module.updateMany({
+    where: { courseId },
     data: { status: "PUBLISHED" },
   });
 
+  await prisma.courseItem.updateMany({
+    where: { courseId, archived: false },
+    data: { status: "PUBLISHED" },
+  });
+
+  const linkedExams = await prisma.courseItem.findMany({
+    where: {
+      courseId,
+      archived: false,
+      examId: { not: null },
+      itemType: { in: ["QUIZ", "EXAM"] },
+    },
+    select: { examId: true },
+  });
+  const examIds = linkedExams
+    .map((row) => row.examId)
+    .filter((id): id is string => Boolean(id));
+  if (examIds.length) {
+    await prisma.exam.updateMany({
+      where: { id: { in: examIds } },
+      data: { published: true },
+    });
+  }
+
   revalidateCourse(courseId, course.slug);
   revalidatePath("/courses");
+  revalidatePath("/exams");
+  revalidatePath("/admin/exams");
   return { success: true };
 }
 
