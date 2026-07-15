@@ -1,6 +1,7 @@
 import { PageHeader } from "@/components/ui/PageHeader";
 import { AdminArchivedLink } from "@/components/admin/AdminArchivedLink";
 import { AdminListCard } from "@/components/admin/AdminListCard";
+import { CopyCourseShareLink } from "@/components/courses/CopyCourseShareLink";
 import { isAdmin, isManager } from "@/lib/auth/permissions";
 import { requireStaff } from "@/lib/auth-utils";
 import { listCoursesAdmin } from "@/lib/repositories/courses";
@@ -44,6 +45,21 @@ export default async function AdminCoursesPage() {
             type="course"
             id={c.id}
             allowDestructive={canDestruct}
+            footer={
+              <>
+                <span className="text-xs font-medium text-storm-navy/60">
+                  Learner link
+                </span>
+                <code className="break-all text-xs text-storm-medium-blue">
+                  /courses/{c.slug}
+                </code>
+                <CopyCourseShareLink
+                  slug={c.slug}
+                  published={c.published && c.status === "PUBLISHED"}
+                  compact
+                />
+              </>
+            }
           />
         ))}
         {courses.length === 0 && (

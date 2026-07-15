@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { AiSessionStatus } from "@prisma/client";
 import type { CourseBuilderCourse } from "@/lib/course-builder/types";
 import { sessionStatusLabel } from "@/lib/ai/session-restore";
+import { CopyCourseShareLink } from "@/components/courses/CopyCourseShareLink";
 import { CourseInfoTab } from "./tabs/CourseInfoTab";
 import { CurriculumTab } from "./tabs/CurriculumTab";
 import { SettingsTab } from "./tabs/SettingsTab";
@@ -144,6 +145,11 @@ function CourseBuilderShellInner({
               Learner grades
             </button>
           )}
+          <CopyCourseShareLink
+            slug={course.slug}
+            published={course.published && course.status === "PUBLISHED"}
+            compact
+          />
           <Link
             href={`/courses/${course.slug}?preview=1`}
             target="_blank"

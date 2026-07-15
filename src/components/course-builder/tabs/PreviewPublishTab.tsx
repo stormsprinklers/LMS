@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { getCourseValidation, publishCourse, saveCourseAsDraft } from "@/lib/actions/course-builder";
 import type { CourseBuilderCourse } from "@/lib/course-builder/types";
+import { CopyCourseShareLink } from "@/components/courses/CopyCourseShareLink";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
@@ -44,6 +45,11 @@ export function PreviewPublishTab({ course }: { course: CourseBuilderCourse }) {
 
   return (
     <div className="max-w-2xl space-y-6">
+      <CopyCourseShareLink
+        slug={course.slug}
+        published={course.published && course.status === "PUBLISHED"}
+      />
+
       <div className="rounded-xl border bg-white p-4 sm:p-6">
         <h2 className="font-medium text-storm-navy">Course validation</h2>
         <ul className="mt-4 space-y-2">

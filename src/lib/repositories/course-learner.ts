@@ -64,13 +64,13 @@ export async function getLearnerCourseCurriculum(
   if (!course) return null;
 
   if (!preview) {
-    const mode = course.settings?.enrollmentMode ?? "MANUAL";
-    if (mode === "MANUAL") {
-      const enrolled = await prisma.enrollment.findUnique({
-        where: { userId_courseId: { userId, courseId: course.id } },
-      });
-      if (!enrolled) return null;
-    }
+    // Shareable learner links: any signed-in org member may open a published
+    // course. Upsert enrollment so progress and grades stay attributed.
+    await prisma.enrollment.upsert({
+      where: { userId_courseId: { userId, courseId: course.id } },
+      create: { userId, courseId: course.id },
+      update: {},
+    });
   }
 
   const progressMap = await getCourseProgressMap(userId, course.id);

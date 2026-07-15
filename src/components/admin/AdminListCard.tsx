@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { AdminEntityActions, type AdminEntityType } from "./AdminEntityActions";
 
 export function AdminListCard({
@@ -12,6 +13,7 @@ export function AdminListCard({
   archived = false,
   as: Tag = "li",
   allowDestructive = true,
+  footer,
 }: {
   href?: string;
   title: string;
@@ -21,6 +23,7 @@ export function AdminListCard({
   archived?: boolean;
   as?: "li" | "div";
   allowDestructive?: boolean;
+  footer?: ReactNode;
 }) {
   return (
     <Tag className="rounded-xl border border-storm-light-blue/60 bg-white p-4 block">
@@ -52,6 +55,11 @@ export function AdminListCard({
           allowDestructive={allowDestructive}
         />
       </div>
+      {footer ? (
+        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-storm-light-blue/40 pt-3">
+          {footer}
+        </div>
+      ) : null}
     </Tag>
   );
 }
