@@ -78,7 +78,7 @@ function applyMediaToLessonHtml(
   itemIndex: number,
 ): string {
   const assets = (blueprint.sourceAssets ?? []) as LessonMediaAsset[];
-  let html = normalizeLessonBodyHtml(bodyHtml);
+  let html = normalizeLessonBodyHtml(bodyHtml, { repairLists: true });
 
   const placements =
     blueprint.mediaPlacements?.filter(

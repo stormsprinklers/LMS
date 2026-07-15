@@ -107,14 +107,17 @@ export function expandStormMediaInLessonHtml(
   });
 }
 
-/** Ensure block-level HTML; strip scripts. */
-export function normalizeLessonBodyHtml(html: string): string {
+/** Ensure block-level HTML; strip scripts. Does not rewrite lists (viewer preserves TipTap nesting). */
+export function normalizeLessonBodyHtml(
+  html: string,
+  options?: { repairLists?: boolean },
+): string {
   let out = html.trim();
   if (!out) return "<p></p>";
 
   out = out.replace(/<script[\s\S]*?<\/script>/gi, "");
 
-  const hasBlockTags = /<(h2|h3|p|ul|ol|li|figure|storm-media)\b/i.test(out);
+  const hasBlockTags = /<(h[1-6]|p|ul|ol|li|figure|blockquote|storm-media)\b/i.test(out);
   if (!hasBlockTags) {
     out = out
       .split(/\n\s*\n/)
@@ -132,17 +135,23 @@ export function normalizeLessonBodyHtml(html: string): string {
       .join("\n");
   }
 
-  out = repairLessonBulletLists(out);
+  // Only AI import/repair should flatten extra lists — never the learner viewer.
+  if (options?.repairLists) {
+    out = repairLessonBulletLists(out);
+  }
 
   return out;
 }
 
-/** Normalize + expand media — use when saving to DB or showing learners. */
+/** Normalize + expand media — use when showing lessons to learners (preserve lists). */
 export function prepareLessonHtmlForDisplay(
   html: string,
   assets: LessonMediaAsset[] = [],
 ): string {
-  return expandStormMediaInLessonHtml(normalizeLessonBodyHtml(html), assets);
+  return expandStormMediaInLessonHtml(
+    normalizeLessonBodyHtml(html, { repairLists: false }),
+    assets,
+  );
 }
 
 export function lessonHtmlUsesStormMedia(html: string): boolean {

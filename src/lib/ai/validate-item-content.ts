@@ -81,7 +81,9 @@ function validateLessonContent(
   issues: string[],
   ctx?: ItemContentValidationContext,
 ): void {
-  let html = normalizeLessonBodyHtml(item.lesson?.bodyHtml?.trim() ?? "");
+  let html = normalizeLessonBodyHtml(item.lesson?.bodyHtml?.trim() ?? "", {
+    repairLists: true,
+  });
   if (!html || html === "<p></p>") {
     issues.push("lesson.bodyHtml: Lesson body HTML is required.");
     return;

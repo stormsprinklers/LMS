@@ -166,7 +166,7 @@ export function repairGeneratedItemCandidate(
     if (!html && skeleton.outline?.trim()) {
       html = `<h2>Overview</h2>\n<p>${skeleton.outline.trim()}</p>`;
     }
-    html = normalizeLessonBodyHtml(html);
+    html = normalizeLessonBodyHtml(html, { repairLists: true });
 
     if (ctx?.assignedMediaAssetIds?.length) {
       html = repairLessonStormMedia(html, {
