@@ -40,7 +40,10 @@ export async function POST(request: NextRequest) {
   };
 
   const user = existing
-    ? await prisma.user.update({ where: { id: existing.id }, data })
+    ? await prisma.user.update({
+        where: { id: existing.id },
+        data: { ...data, passwordHash: null },
+      })
     : await prisma.user.create({
         data: {
           ...data,

@@ -1,7 +1,13 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
-import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/db";
+import { verifyCrmLmsTicket } from "@/lib/crm-auth";
+
+function mapCrmRoleToLms(role: string): "ADMIN" | "MANAGER" | "EMPLOYEE" {
+  if (role === "ADMIN") return "ADMIN";
+  if (role === "MANAGER") return "MANAGER";
+  return "EMPLOYEE";
+}
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   secret: process.env.AUTH_SECRET,
@@ -12,30 +18,55 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   },
   providers: [
     Credentials({
-      name: "credentials",
+      name: "crm-ticket",
       credentials: {
-        email: { label: "Email", type: "email" },
-        password: { label: "Password", type: "password" },
+        ticket: { label: "Ticket", type: "text" },
       },
       async authorize(credentials) {
-        const email = credentials?.email as string | undefined;
-        const password = credentials?.password as string | undefined;
-        if (!email || !password) return null;
+        const ticket = credentials?.ticket ? String(credentials.ticket) : "";
+        if (!ticket) return null;
 
-        const user = await prisma.user.findUnique({ where: { email } });
-        if (!user?.passwordHash || user.status !== "ACTIVE" || user.archived) {
+        try {
+          const claims = await verifyCrmLmsTicket(ticket);
+          const user = await prisma.user.findFirst({
+            where: {
+              OR: [{ crmUserId: claims.crmUserId }, { email: claims.email }],
+              archived: false,
+            },
+          });
+
+          if (!user) {
+            return null;
+          }
+          if (user.status !== "ACTIVE") {
+            return null;
+          }
+
+          // Keep CRM link + profile aligned from the verified ticket.
+          const nextRole =
+            user.role === "COURSE_ADMIN"
+              ? user.role
+              : mapCrmRoleToLms(claims.role);
+          await prisma.user.update({
+            where: { id: user.id },
+            data: {
+              crmUserId: claims.crmUserId,
+              email: claims.email,
+              name: claims.name ?? user.name,
+              role: nextRole,
+              passwordHash: null,
+            },
+          });
+
+          return {
+            id: user.id,
+            email: claims.email,
+            name: claims.name ?? user.name,
+            role: nextRole,
+          };
+        } catch {
           return null;
         }
-
-        const valid = await bcrypt.compare(password, user.passwordHash);
-        if (!valid) return null;
-
-        return {
-          id: user.id,
-          email: user.email,
-          name: user.name,
-          role: user.role,
-        };
       },
     }),
   ],
