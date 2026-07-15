@@ -49,6 +49,16 @@ export default async function CourseItemPage({
     notFound();
   }
 
+  // Mark viewed/scenario complete before building nav so Next unlocks on this render.
+  if (!preview) {
+    if (
+      (item.itemType === "LESSON" && item.completionRule === "viewed") ||
+      item.itemType === "SCENARIO"
+    ) {
+      await markCourseItemViewed(session.user.id, itemId);
+    }
+  }
+
   const [progressMap, navigation] = await Promise.all([
     getCourseProgressMap(session.user.id, item.courseId),
     getCourseItemNavigation(slug, itemId, session.user.id, preview),
@@ -59,14 +69,6 @@ export default async function CourseItemPage({
   const progress = progressMap.get(item.id);
   const previewQuery = preview ? "?preview=1" : "";
   const courseHref = `/courses/${slug}${previewQuery}`;
-
-  if (item.itemType === "LESSON" && item.completionRule === "viewed" && !preview) {
-    await markCourseItemViewed(session.user.id, itemId);
-  }
-
-  if (item.itemType === "SCENARIO" && !preview) {
-    await markCourseItemViewed(session.user.id, itemId);
-  }
 
   const requiredWatchPercent =
     item.videoLesson?.requiredWatchPercent ?? DEFAULT_REQUIRED_WATCH_PERCENT;
