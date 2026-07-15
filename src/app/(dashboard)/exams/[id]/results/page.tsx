@@ -11,6 +11,10 @@ import {
   getRemainingAttempts,
 } from "@/lib/exams/attempt-state";
 import { gradesVisibleToLearner } from "@/lib/exams/grade-visibility";
+import { getCourseItemNavigationByExamId } from "@/lib/courses/item-navigation";
+import { markCourseExamItemComplete } from "@/lib/courses/completion";
+import { CourseExamTakeNav } from "@/components/courses/CourseExamTakeNav";
+import { ExamAnswerReview } from "@/components/exams/ExamAnswerReview";
 import { notFound, redirect } from "next/navigation";
 
 export default async function ExamResultsPage({
@@ -78,11 +82,53 @@ export default async function ExamResultsPage({
       ? await getAttemptWithAnswers(latest.id, session.user.id)
       : null;
 
+  // Heal older passes that never wrote course item progress (unlocks Next).
+  if (passed && latest?.status === "PASSED") {
+    await markCourseExamItemComplete(session.user.id, id).catch(() => null);
+  }
+
+  const courseNav = await getCourseItemNavigationByExamId(
+    id,
+    session.user.id,
+    false,
+  );
+
+  const orderedAnswers = detailAttempt
+    ? (() => {
+        const order = Array.isArray(detailAttempt.questionOrder)
+          ? (detailAttempt.questionOrder as string[])
+          : [];
+        const answers = [...detailAttempt.examAnswers];
+        if (!order.length) {
+          return answers.sort(
+            (a, b) => a.question.sortOrder - b.question.sortOrder,
+          );
+        }
+        const rank = new Map(order.map((qid, i) => [qid, i]));
+        return answers.sort(
+          (a, b) =>
+            (rank.get(a.questionId) ?? 999) - (rank.get(b.questionId) ?? 999),
+        );
+      })()
+    : [];
+
   return (
     <div className="mx-auto max-w-lg">
       <h1 className="font-title text-2xl font-bold text-storm-navy">
         {exam.title}
       </h1>
+
+      {courseNav ? (
+        <p className="mt-1 text-sm text-storm-navy/60">
+          Part of{" "}
+          <Link
+            href={`/courses/${courseNav.courseSlug}`}
+            className="font-medium text-storm-medium-blue no-underline hover:underline"
+          >
+            {courseNav.courseTitle}
+          </Link>
+        </p>
+      ) : null}
 
       {pendingReview && (
         <div className="mt-6 rounded-xl bg-amber-50 p-6">
@@ -148,18 +194,17 @@ export default async function ExamResultsPage({
         </Link>
       )}
 
-      {detailAttempt && !gradesHidden && (
-        <ul className="mt-6 space-y-3">
-          {detailAttempt.examAnswers.map((a) => (
-            <li key={a.id} className="rounded-lg border p-3 text-sm">
-              <p className="font-medium">{a.question.text}</p>
-              {a.feedback && (
-                <p className="mt-1 text-storm-navy/70">Feedback: {a.feedback}</p>
-              )}
-              <p className="text-storm-navy/60">
-                Points: {a.manualScore ?? a.autoScore ?? "—"}%
-              </p>
-            </li>
+      {detailAttempt && !gradesHidden && orderedAnswers.length > 0 && (
+        <ul className="mt-6 space-y-4">
+          {orderedAnswers.map((a) => (
+            <ExamAnswerReview
+              key={a.id}
+              question={a.question}
+              value={a.value}
+              autoScore={a.autoScore}
+              manualScore={a.manualScore}
+              feedback={a.feedback}
+            />
           ))}
         </ul>
       )}
@@ -179,12 +224,33 @@ export default async function ExamResultsPage({
           </li>
         ))}
       </ul>
-      <Link
-        href="/exams"
-        className="mt-8 inline-block text-storm-medium-blue no-underline hover:underline"
-      >
-        Back to exams
-      </Link>
+
+      {courseNav ? (
+        <>
+          <CourseExamTakeNav navigation={courseNav} />
+          <div className="mt-4 flex flex-wrap gap-4 text-sm">
+            <Link
+              href={`/courses/${courseNav.courseSlug}`}
+              className="text-storm-medium-blue no-underline hover:underline"
+            >
+              Back to course
+            </Link>
+            <Link
+              href="/exams"
+              className="text-storm-navy/55 no-underline hover:underline"
+            >
+              All exams
+            </Link>
+          </div>
+        </>
+      ) : (
+        <Link
+          href="/exams"
+          className="mt-8 inline-block text-storm-medium-blue no-underline hover:underline"
+        >
+          Back to exams
+        </Link>
+      )}
     </div>
   );
 }

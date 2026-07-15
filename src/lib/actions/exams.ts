@@ -15,6 +15,7 @@ import {
   notifyGradersExamSubmitted,
   resolveExamGraderIds,
 } from "@/lib/exams/grader-notify";
+import { markCourseExamItemComplete } from "@/lib/courses/completion";
 import type { Prisma } from "@prisma/client";
 
 export async function startExamAttempt(examId: string) {
@@ -225,6 +226,21 @@ async function submitExamAttemptInner(
       answers: answers as Prisma.InputJsonValue,
     },
   });
+
+  if (passed) {
+    const courseItem = await markCourseExamItemComplete(
+      session.user.id,
+      attempt.examId,
+    );
+    if (courseItem) {
+      const course = await prisma.course.findUnique({
+        where: { id: courseItem.courseId },
+        select: { slug: true },
+      });
+      revalidatePath("/courses");
+      if (course?.slug) revalidatePath(`/courses/${course.slug}`);
+    }
+  }
 
   const courseId =
     attempt.exam.courseId ??

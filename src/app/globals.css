@@ -91,10 +91,33 @@ body {
 .lesson-content ol {
   margin: 0 0 1rem;
   padding-left: 1.5rem;
+  /* Undo Tailwind Preflight `list-style: none` so viewer matches the editor */
+  list-style-position: outside;
+}
+
+.lesson-content ul {
+  list-style-type: disc;
+}
+
+.lesson-content ol {
+  list-style-type: decimal;
+}
+
+.lesson-content ul ul {
+  list-style-type: circle;
+  margin-top: 0.35rem;
+  margin-bottom: 0.35rem;
+}
+
+.lesson-content ol ol {
+  list-style-type: lower-alpha;
+  margin-top: 0.35rem;
+  margin-bottom: 0.35rem;
 }
 
 .lesson-content li {
   margin-bottom: 0.35rem;
+  display: list-item;
 }
 
 .lesson-content strong {
@@ -156,14 +179,6 @@ body {
 /* TipTap lesson builder editor */
 .tiptap-editor-body {
   max-width: none;
-}
-
-.tiptap-editor-body ul {
-  list-style-type: disc;
-}
-
-.tiptap-editor-body ol {
-  list-style-type: decimal;
 }
 
 .tiptap-editor-body a.tiptap-link,

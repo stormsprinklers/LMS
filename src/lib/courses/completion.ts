@@ -139,3 +139,20 @@ export async function arePriorRequiredItemsComplete(
   });
   return prior.every((p) => progressMap.get(p.id)?.status === "COMPLETED");
 }
+
+/** Mark the course curriculum exam/quiz item complete when the learner passes. */
+export async function markCourseExamItemComplete(userId: string, examId: string) {
+  const item = await prisma.courseItem.findFirst({
+    where: { examId, archived: false },
+    select: { id: true, courseId: true },
+  });
+  if (!item) return null;
+
+  await prisma.courseItemProgress.upsert({
+    where: { userId_courseItemId: { userId, courseItemId: item.id } },
+    create: { userId, courseItemId: item.id, status: "COMPLETED" },
+    update: { status: "COMPLETED", updatedAt: new Date() },
+  });
+
+  return item;
+}
