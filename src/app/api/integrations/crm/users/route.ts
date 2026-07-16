@@ -9,6 +9,15 @@ function mapLmsRole(role: string): UserRole {
   return UserRole.EMPLOYEE;
 }
 
+function resolveRole(existingRole: UserRole | undefined, crmRole: string): UserRole {
+  const mapped = mapLmsRole(crmRole);
+  // Keep LMS-only COURSE_ADMIN unless CRM is explicitly promoting to ADMIN/MANAGER.
+  if (existingRole === UserRole.COURSE_ADMIN && mapped === UserRole.EMPLOYEE) {
+    return UserRole.COURSE_ADMIN;
+  }
+  return mapped;
+}
+
 export async function POST(request: NextRequest) {
   const auth = authenticateIntegrationRequest(request);
   if (auth !== true) return auth;
@@ -42,7 +51,7 @@ export async function POST(request: NextRequest) {
     const data = {
       email,
       name,
-      role: mapLmsRole(String(body.role ?? "EMPLOYEE")),
+      role: resolveRole(existing?.role, String(body.role ?? "EMPLOYEE")),
       crmUserId,
       crmSyncStatus: "synced",
       crmLastSyncedAt: new Date(),
@@ -63,7 +72,13 @@ export async function POST(request: NextRequest) {
           },
         });
 
-    return NextResponse.json({ lmsUserId: user.id, crmUserId: user.crmUserId });
+    return NextResponse.json({
+      lmsUserId: user.id,
+      crmUserId: user.crmUserId,
+      email: user.email,
+      role: user.role,
+      name: user.name,
+    });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       return NextResponse.json(

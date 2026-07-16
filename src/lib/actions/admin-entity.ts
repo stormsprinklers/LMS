@@ -81,7 +81,10 @@ export async function deleteCourse(
 }
 
 export async function archiveUser(userId: string) {
-  await requireAdmin();
+  const session = await requireAdmin();
+  if (userId === session.user.id) {
+    throw new Error("You cannot archive your own account.");
+  }
   await prisma.user.update({
     where: { id: userId },
     data: { archived: true, archivedAt: new Date(), status: "DISABLED" },

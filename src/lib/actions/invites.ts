@@ -71,6 +71,9 @@ export async function listUsers() {
       status: true,
       jobRole: true,
       archived: true,
+      crmUserId: true,
+      crmSyncStatus: true,
+      crmLastSyncedAt: true,
       createdAt: true,
     },
   });
