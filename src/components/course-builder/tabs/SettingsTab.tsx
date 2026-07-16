@@ -1,8 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { updateCourseSettings } from "@/lib/actions/course-builder";
 import type { CourseBuilderCourse } from "@/lib/course-builder/types";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useRef, useState } from "react";
 import { useBuilderFormDirty } from "../useBuilderFormDirty";
 
@@ -11,10 +12,18 @@ const inputClass =
 
 export function SettingsTab({ course }: { course: CourseBuilderCourse }) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const formRef = useRef<HTMLFormElement>(null);
   const { resolveSave, formDirtyProps } = useBuilderFormDirty(`course-settings-${course.id}`, formRef);
   const [busy, setBusy] = useState(false);
   const s = course.settings;
+
+  const certificationHref = (() => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("tab", "certification");
+    return `${pathname}?${params.toString()}`;
+  })();
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -31,7 +40,6 @@ export function SettingsTab({ course }: { course: CourseBuilderCourse }) {
       requireAllSkillChecks: fd.get("requireAllSkillChecks") === "on",
       finalExamRequired: fd.get("finalExamRequired") === "on",
       finalExamPassingScore: Number(fd.get("finalExamPassingScore")) || null,
-      issueCertificate: fd.get("issueCertificate") === "on",
       notifyOnAssign: fd.get("notifyOnAssign") === "on",
       notifyReminder: fd.get("notifyReminder") === "on",
     });
@@ -139,15 +147,13 @@ export function SettingsTab({ course }: { course: CourseBuilderCourse }) {
             className={inputClass}
           />
         </label>
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            name="issueCertificate"
-            defaultChecked={s?.issueCertificate ?? true}
-            className="h-4 w-4"
-          />
-          Issue certificate after completion
-        </label>
+        <p className="rounded-lg border border-storm-light-blue/50 bg-storm-light-grey/40 px-3 py-2 text-sm text-storm-navy/80">
+          Certificate issuance is configured on the{" "}
+          <Link href={certificationHref} className="font-medium text-storm-medium-blue underline">
+            Certification
+          </Link>{" "}
+          tab.
+        </p>
       </fieldset>
       <fieldset className="space-y-2">
         <legend className="text-sm font-medium">Notifications</legend>

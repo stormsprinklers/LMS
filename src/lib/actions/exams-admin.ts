@@ -334,31 +334,10 @@ export async function publishExamGrades(examId: string) {
     });
 
     if (attempt.passed && exam.courseId) {
-      const rule = await prisma.certificationRule.findFirst({
-        where: { courseId: exam.courseId },
+      const { tryAwardCertification } = await import("@/lib/certifications/award");
+      await tryAwardCertification(attempt.userId, exam.courseId).catch((error) => {
+        console.error("Certification award after grade publish failed:", error);
       });
-      if (rule) {
-        const expires = new Date();
-        expires.setMonth(expires.getMonth() + rule.validityMonths);
-        await prisma.certification.upsert({
-          where: {
-            userId_ruleId: { userId: attempt.userId, ruleId: rule.id },
-          },
-          update: {
-            status: "EARNED",
-            issuedAt: new Date(),
-            expiresAt: expires,
-          },
-          create: {
-            userId: attempt.userId,
-            ruleId: rule.id,
-            title: rule.title,
-            status: "EARNED",
-            issuedAt: new Date(),
-            expiresAt: expires,
-          },
-        });
-      }
     }
   }
   revalidatePath(`/admin/exams/${examId}`);

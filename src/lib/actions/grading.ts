@@ -248,31 +248,10 @@ export async function saveAttemptGrades(
     updated.exam.courseId &&
     !holdsGradesUntilAdminPublish(updated.exam.gradeVisibility)
   ) {
-    const rule = await prisma.certificationRule.findFirst({
-      where: { courseId: updated.exam.courseId },
+    const { tryAwardCertification } = await import("@/lib/certifications/award");
+    await tryAwardCertification(updated.userId, updated.exam.courseId).catch((error) => {
+      console.error("Certification award after grading failed:", error);
     });
-    if (rule) {
-      const expires = new Date();
-      expires.setMonth(expires.getMonth() + rule.validityMonths);
-      await prisma.certification.upsert({
-        where: {
-          userId_ruleId: { userId: updated.userId, ruleId: rule.id },
-        },
-        update: {
-          status: "EARNED",
-          issuedAt: new Date(),
-          expiresAt: expires,
-        },
-        create: {
-          userId: updated.userId,
-          ruleId: rule.id,
-          title: rule.title,
-          status: "EARNED",
-          issuedAt: new Date(),
-          expiresAt: expires,
-        },
-      });
-    }
   }
 
   revalidatePath("/admin/grades");

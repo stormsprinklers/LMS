@@ -254,31 +254,10 @@ async function submitExamAttemptInner(
   );
 
   if (passed && courseId && releaseGradesImmediately) {
-    const rule = await prisma.certificationRule.findFirst({
-      where: { courseId },
+    const { tryAwardCertification } = await import("@/lib/certifications/award");
+    await tryAwardCertification(session.user.id, courseId).catch((error) => {
+      console.error("Certification award after exam failed:", error);
     });
-    if (rule) {
-      const expires = new Date();
-      expires.setMonth(expires.getMonth() + rule.validityMonths);
-      await prisma.certification.upsert({
-        where: {
-          userId_ruleId: { userId: session.user.id, ruleId: rule.id },
-        },
-        update: {
-          status: "EARNED",
-          issuedAt: new Date(),
-          expiresAt: expires,
-        },
-        create: {
-          userId: session.user.id,
-          ruleId: rule.id,
-          title: rule.title,
-          status: "EARNED",
-          issuedAt: new Date(),
-          expiresAt: expires,
-        },
-      });
-    }
   }
 
   revalidatePath("/exams");

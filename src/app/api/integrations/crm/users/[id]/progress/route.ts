@@ -43,13 +43,16 @@ export async function GET(_request: NextRequest, { params }: Params) {
     });
 
     const certifications = await prisma.certification.findMany({
-      where: { userId: user.id },
+      where: { userId: user.id, status: "EARNED" },
       orderBy: { expiresAt: "asc" },
       select: {
         id: true,
         title: true,
         issuedAt: true,
         expiresAt: true,
+        badgeUrl: true,
+        pdfUrl: true,
+        rule: { select: { description: true, badgeUrl: true } },
       },
     });
 
@@ -94,6 +97,9 @@ export async function GET(_request: NextRequest, { params }: Params) {
       certifications: certifications.map((c) => ({
         id: c.id,
         title: c.title,
+        description: c.rule.description ?? null,
+        badgeUrl: c.badgeUrl ?? c.rule.badgeUrl ?? null,
+        pdfUrl: c.pdfUrl ?? null,
         issuedAt: c.issuedAt?.toISOString() ?? null,
         expiresAt: c.expiresAt?.toISOString() ?? null,
       })),

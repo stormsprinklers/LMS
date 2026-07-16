@@ -168,11 +168,17 @@ export function toCertificationDTO(c: {
   status: CertificationStatus;
   issuedAt: Date | null;
   expiresAt: Date | null;
+  description?: string | null;
+  badgeUrl?: string | null;
+  pdfUrl?: string | null;
 }): Certification {
   return {
     id: c.id,
     title: c.title,
     courseId: c.courseSlug,
+    description: c.description ?? null,
+    badgeUrl: c.badgeUrl ?? null,
+    pdfUrl: c.pdfUrl ?? null,
     status: mapCertStatus(c.status),
     issuedAt: c.issuedAt?.toISOString().slice(0, 10),
     expiresAt: c.expiresAt?.toISOString().slice(0, 10),

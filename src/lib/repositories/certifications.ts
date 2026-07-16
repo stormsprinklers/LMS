@@ -6,7 +6,9 @@ export async function getCertificationsForUser(
   userId: string,
 ): Promise<Certification[]> {
   const rules = await prisma.certificationRule.findMany({
+    where: { archived: false },
     include: { course: true },
+    orderBy: { title: "asc" },
   });
 
   const existing = await prisma.certification.findMany({
@@ -28,6 +30,9 @@ export async function getCertificationsForUser(
           status: cert.status,
           issuedAt: cert.issuedAt,
           expiresAt: cert.expiresAt,
+          description: rule.description ?? cert.title,
+          badgeUrl: cert.badgeUrl ?? rule.badgeUrl,
+          pdfUrl: cert.pdfUrl,
         }),
       );
     } else {
@@ -35,6 +40,8 @@ export async function getCertificationsForUser(
         id: `pending-${rule.id}`,
         title: rule.title,
         courseId: rule.course.slug,
+        description: rule.description,
+        badgeUrl: rule.badgeUrl,
         status: "in_progress",
       });
     }

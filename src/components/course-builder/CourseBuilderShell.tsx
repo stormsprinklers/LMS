@@ -10,6 +10,7 @@ import { CopyCourseShareLink } from "@/components/courses/CopyCourseShareLink";
 import { CourseInfoTab } from "./tabs/CourseInfoTab";
 import { CurriculumTab } from "./tabs/CurriculumTab";
 import { SettingsTab } from "./tabs/SettingsTab";
+import { CertificationTab } from "./tabs/CertificationTab";
 import { AssignmentsTab } from "./tabs/AssignmentsTab";
 import { PreviewPublishTab } from "./tabs/PreviewPublishTab";
 import { AiStudioTab } from "./tabs/AiStudioTab";
@@ -23,6 +24,7 @@ const TABS = [
   { id: "curriculum", label: "Curriculum" },
   { id: "ai", label: "AI Studio" },
   { id: "settings", label: "Settings" },
+  { id: "certification", label: "Certification" },
   { id: "assignments", label: "Assignments" },
   { id: "preview", label: "Preview & Publish" },
 ] as const;
@@ -210,6 +212,9 @@ function CourseBuilderShellInner({
       )}
       {tab === "ai" && <AiStudioTab course={course} />}
       {tab === "settings" && <SettingsTab course={course} />}
+      {tab === "certification" && (
+        <CertificationTab courseId={course.id} courseTitle={course.title} />
+      )}
       {tab === "assignments" && <AssignmentsTab courseId={course.id} users={users} />}
       {tab === "preview" && <PreviewPublishTab course={course} />}
     </div>

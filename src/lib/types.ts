@@ -38,6 +38,9 @@ export interface Certification {
   id: string;
   title: string;
   courseId: string;
+  description?: string | null;
+  badgeUrl?: string | null;
+  pdfUrl?: string | null;
   issuedAt?: string;
   expiresAt?: string;
   status: "earned" | "in_progress" | "expired";
