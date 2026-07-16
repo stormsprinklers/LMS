@@ -1,0 +1,7 @@
+-- AlterTable
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "crmUserId" TEXT;
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "crmSyncStatus" TEXT;
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "crmLastSyncedAt" TIMESTAMP(3);
+
+-- CreateIndex
+CREATE UNIQUE INDEX IF NOT EXISTS "User_crmUserId_key" ON "User"("crmUserId");

@@ -35,6 +35,19 @@ The error `404: NOT_FOUND` with an ID like `sfo1::...` is **Vercel’s platform*
 
    Or run `scripts/fix-production-schema.sql` in the Neon SQL Editor, then mark migrations applied with `npx prisma migrate resolve --applied <migration_name>` (see comments in that file).
 
+   **If CRM → LMS employee sync returns 500 / “Failed to sync user”**, production is missing
+   `User.crmUserId` (and related) columns. From your machine:
+
+   ```bash
+   npm run db:migrate:deploy
+   ```
+
+   Or run the CRM sync section at the bottom of [`scripts/fix-production-schema.sql`](scripts/fix-production-schema.sql) in the Neon SQL Editor, then:
+
+   ```bash
+   npx prisma migrate resolve --applied 20250716000000_crm_user_sync_fields
+   ```
+
    **Database migrations:** Vercel builds **do not** run `prisma migrate deploy` (avoids Neon advisory-lock timeouts). Your existing Neon database is unchanged until you run the command above. When you add new files under `prisma/migrations/`, apply them once from your computer:
 
    ```bash

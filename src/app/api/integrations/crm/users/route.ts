@@ -18,6 +18,26 @@ function resolveRole(existingRole: UserRole | undefined, crmRole: string): UserR
   return mapped;
 }
 
+function prismaErrorMessage(error: unknown): string {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    if (error.code === "P2002") {
+      return "A user with this email or CRM id already exists with conflicting data";
+    }
+    if (error.code === "P2022") {
+      return "LMS database is missing CRM sync columns. Run npm run db:migrate:deploy on LMS (or apply scripts/fix-production-schema.sql).";
+    }
+    return `Database error ${error.code}`;
+  }
+  if (error instanceof Prisma.PrismaClientValidationError) {
+    return "Invalid user data for LMS schema";
+  }
+  const msg = error instanceof Error ? error.message : String(error);
+  if (/crmUserId|crmSyncStatus|crmLastSyncedAt|column .* does not exist/i.test(msg)) {
+    return "LMS database is missing CRM sync columns. Run npm run db:migrate:deploy on LMS (or apply scripts/fix-production-schema.sql).";
+  }
+  return msg.slice(0, 300) || "Failed to sync user";
+}
+
 export async function POST(request: NextRequest) {
   const auth = authenticateIntegrationRequest(request);
   if (auth !== true) return auth;
@@ -80,13 +100,14 @@ export async function POST(request: NextRequest) {
       name: user.name,
     });
   } catch (error) {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-      return NextResponse.json(
-        { error: "A user with this email or CRM id already exists with conflicting data" },
-        { status: 409 }
-      );
-    }
     console.error("CRM user sync failed:", error);
-    return NextResponse.json({ error: "Failed to sync user" }, { status: 500 });
+    const message = prismaErrorMessage(error);
+    const status =
+      error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002"
+        ? 409
+        : /missing CRM sync columns/i.test(message)
+          ? 503
+          : 500;
+    return NextResponse.json({ error: message }, { status });
   }
 }
