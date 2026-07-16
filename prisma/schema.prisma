@@ -151,6 +151,7 @@ model User {
   crmUserId     String?    @unique
   crmSyncStatus String?
   crmLastSyncedAt DateTime?
+  photoUrl      String?
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
 

@@ -74,6 +74,7 @@ export async function listUsers() {
       crmUserId: true,
       crmSyncStatus: true,
       crmLastSyncedAt: true,
+      photoUrl: true,
       createdAt: true,
     },
   });

@@ -13,11 +13,13 @@ export function MobileShell({
   unread,
   userName,
   userRole,
+  userImageUrl,
 }: {
   children: React.ReactNode;
   unread: number;
   userName: string;
   userRole: string;
+  userImageUrl?: string | null;
 }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const pathname = usePathname();
@@ -42,6 +44,7 @@ export function MobileShell({
           unread={unread}
           name={userName}
           role={userRole}
+          imageUrl={userImageUrl}
           onMenuClick={() => setDrawerOpen(true)}
         />
         <main className="flex-1 overflow-x-hidden overflow-y-auto p-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:p-6 lg:p-8">

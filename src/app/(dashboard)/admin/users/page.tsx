@@ -38,7 +38,20 @@ export default async function AdminUsersPage() {
               className="rounded-xl border border-storm-light-blue/60 bg-white p-4"
             >
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div className="min-w-0 flex-1">
+                <div className="flex min-w-0 flex-1 items-start gap-3">
+                  {u.photoUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={u.photoUrl}
+                      alt=""
+                      className="h-12 w-12 shrink-0 rounded-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-storm-medium-blue/15 text-sm font-semibold text-storm-medium-blue">
+                      {(u.name ?? u.email).slice(0, 1).toUpperCase()}
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
                   <p className="font-title font-bold text-storm-navy">
                     {u.name ?? u.email}
                   </p>
@@ -52,6 +65,7 @@ export default async function AdminUsersPage() {
                       {u.crmSyncStatus ? ` (${u.crmSyncStatus})` : ""}
                     </p>
                   ) : null}
+                  </div>
                 </div>
                 <div className="flex flex-col items-stretch gap-3 sm:items-end">
                   <UserRoleSelect

@@ -10,11 +10,13 @@ export function HeaderBar({
   unread,
   name,
   role,
+  imageUrl,
   onMenuClick,
 }: {
   unread: number;
   name: string;
   role: string;
+  imageUrl?: string | null;
   onMenuClick: () => void;
 }) {
   return (
@@ -50,7 +52,7 @@ export function HeaderBar({
       </div>
       <div className="flex shrink-0 items-center gap-2">
         <NotificationsBell count={unread} />
-        <UserMenu name={name} role={role} />
+        <UserMenu name={name} role={role} imageUrl={imageUrl} />
       </div>
     </header>
   );

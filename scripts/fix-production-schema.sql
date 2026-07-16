@@ -18,12 +18,8 @@ ALTER TYPE "UserRole" ADD VALUE IF NOT EXISTS 'MANAGER';
 ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "crmUserId" TEXT;
 ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "crmSyncStatus" TEXT;
 ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "crmLastSyncedAt" TIMESTAMP(3);
-CREATE UNIQUE INDEX IF NOT EXISTS "User_crmUserId_key" ON "User"("crmUserId");
-
--- CRM identity link (required for employee sync from irrigation CRM)
-ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "crmUserId" TEXT;
-ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "crmSyncStatus" TEXT;
-ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "crmLastSyncedAt" TIMESTAMP(3);
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "photoUrl" TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS "User_crmUserId_key" ON "User"("crmUserId");
 -- After applying:
---   npx prisma migrate resolve --applied 20250716000000_crm_user_link
+--   npx prisma migrate resolve --applied 20250716000000_crm_user_sync_fields
+--   npx prisma migrate resolve --applied 20250716140000_user_photo_url

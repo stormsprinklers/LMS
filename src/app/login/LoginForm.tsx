@@ -2,7 +2,7 @@
 
 import { signIn } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 type Step = "credentials" | "mfa";
 
@@ -10,11 +10,17 @@ export function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
   const callbackUrl = params.get("callbackUrl") ?? "/";
-  const crmForgotUrl = useMemo(() => {
-    const base =
-      process.env.NEXT_PUBLIC_CRM_URL?.replace(/\/$/, "") || "";
-    return base ? `${base}/forgot-password` : null;
-  }, []);
+  const [crmForgotUrl, setCrmForgotUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    const base = process.env.NEXT_PUBLIC_CRM_URL?.replace(/\/$/, "") || "";
+    if (!base) {
+      setCrmForgotUrl(null);
+      return;
+    }
+    const returnTo = `${window.location.origin}/login?callbackUrl=${encodeURIComponent(callbackUrl)}`;
+    setCrmForgotUrl(`${base}/forgot-password?returnTo=${encodeURIComponent(returnTo)}`);
+  }, [callbackUrl]);
 
   const [step, setStep] = useState<Step>("credentials");
   const [email, setEmail] = useState("");
@@ -192,6 +198,11 @@ export function LoginForm() {
 
   return (
     <form onSubmit={handleCredentials} className="space-y-4">
+      {params.get("reset") === "1" && (
+        <p className="rounded-lg bg-green-50 px-3 py-2 text-sm text-green-800">
+          Password updated. Sign in with your new password.
+        </p>
+      )}
       {error && (
         <p className="rounded-lg bg-storm-pink/15 px-3 py-2 text-sm text-storm-navy">
           {error}
