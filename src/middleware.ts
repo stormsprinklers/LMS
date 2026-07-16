@@ -5,11 +5,17 @@ const publicPaths = ["/login", "/invite"];
 
 export default auth((req) => {
   const { pathname } = req.nextUrl;
+
+  // Integration routes authenticate via shared secret — do not run Auth.js session
+  // parsing here. CRM sends a Bearer API key that is not a JWT and can crash middleware.
+  if (pathname.startsWith("/api/integrations")) {
+    return NextResponse.next();
+  }
+
   const isPublic =
     publicPaths.some((p) => pathname.startsWith(p)) ||
     pathname.startsWith("/api/auth") ||
-    pathname.startsWith("/api/webhooks") ||
-    pathname.startsWith("/api/integrations");
+    pathname.startsWith("/api/webhooks");
 
   if (!req.auth && !isPublic) {
     const login = new URL("/login", req.nextUrl.origin);
@@ -55,5 +61,6 @@ export default auth((req) => {
 });
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|brand/).*)"],
+  // Skip Auth.js entirely for CRM integration routes (Bearer API key ≠ JWT session).
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|brand/|api/integrations).*)"],
 };
