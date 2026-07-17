@@ -20,6 +20,18 @@ export interface Course {
   estimatedHours: number;
   lessons: Lesson[];
   requiredForRole?: string[];
+  /** Certifications this course contributes to (primary or prerequisite). */
+  certifications?: CourseCertificationInfo[];
+}
+
+export interface CourseCertificationInfo {
+  ruleId: string;
+  title: string;
+  badgeUrl: string | null;
+  /** Courses that must be completed for this certification (primary + prereqs). */
+  totalCourses: number;
+  /** How many of those courses the learner has completed. */
+  completedCourses: number;
 }
 
 export interface Exam {

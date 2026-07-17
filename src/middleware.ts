@@ -62,5 +62,8 @@ export default auth((req) => {
 
 export const config = {
   // Skip Auth.js entirely for CRM integration routes (Bearer API key ≠ JWT session).
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|brand/|api/integrations).*)"],
+  // Also skip PWA assets and static images so install/icons work without a session.
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|sw\\.js|manifest\\.webmanifest|brand/|api/integrations|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+  ],
 };
