@@ -47,6 +47,12 @@ export default async function AdminCoursesPage() {
             allowDestructive={canDestruct}
             footer={
               <>
+                <Link
+                  href={`/admin/grades/courses/${c.id}`}
+                  className="rounded-lg border border-storm-medium-blue/40 px-3 py-1.5 text-xs font-semibold text-storm-medium-blue no-underline hover:bg-storm-medium-blue/5"
+                >
+                  View progress
+                </Link>
                 <span className="text-xs font-medium text-storm-navy/60">
                   Learner link
                 </span>

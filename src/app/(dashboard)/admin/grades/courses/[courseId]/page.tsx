@@ -2,7 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { CourseGradesTable } from "@/components/admin/grades/CourseGradesTable";
-import { requireCourseAdmin } from "@/lib/auth-utils";
+import { requireViewCourseProgress } from "@/lib/auth-utils";
+import { isStaff } from "@/lib/auth/permissions";
 import { getCourseGradesReport } from "@/lib/repositories/admin-grades";
 
 export async function generateMetadata({
@@ -23,30 +24,31 @@ export default async function CourseGradesPage({
   params: Promise<{ courseId: string }>;
 }) {
   const { courseId } = await params;
-  const session = await requireCourseAdmin(courseId);
+  const session = await requireViewCourseProgress(courseId);
   const role = (session.user as { role?: string }).role;
 
   const report = await getCourseGradesReport(courseId);
   if (!report) notFound();
 
   const { course, learners, courseExams } = report;
+  const enrolledCount = learners.filter((l) => l.enrolled).length;
 
   return (
     <>
       <PageHeader
         title={`Progress: ${course.title}`}
-        description={`${learners.length} learner${learners.length === 1 ? "" : "s"} with progress or exam activity`}
+        description={`${learners.length} user${learners.length === 1 ? "" : "s"} in the organization · ${enrolledCount} enrolled`}
         action={
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            {role === "ADMIN" && (
+            {isStaff(role) && (
               <Link
-                href="/admin/grades"
+                href="/admin/grades?view=published"
                 className="text-sm text-storm-medium-blue no-underline hover:underline"
               >
                 ← All grades
               </Link>
             )}
-            {role === "ADMIN" && (
+            {isStaff(role) && (
               <Link
                 href={`/admin/courses/${course.id}/builder`}
                 className="text-sm text-storm-navy/70 no-underline hover:underline"

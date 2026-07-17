@@ -35,29 +35,28 @@ function CourseCertBadge({
   estimatedHours: number;
 }) {
   return (
-    <div className="flex max-w-[12rem] items-center gap-2 sm:max-w-[15rem]">
+    <div className="flex min-w-0 items-center gap-2">
       {cert.badgeUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={cert.badgeUrl}
           alt=""
-          className="h-10 w-10 shrink-0 rounded-full object-cover"
+          className="h-8 w-8 shrink-0 rounded-full object-cover"
         />
       ) : (
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-storm-navy/10 text-xs font-semibold text-storm-navy">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-storm-navy/10 text-xs font-semibold text-storm-navy">
           ★
         </div>
       )}
-      <div className="min-w-0 text-right">
-        <p className="text-[11px] font-medium leading-snug text-storm-navy sm:text-xs">
-          {certificationCaption(cert, estimatedHours)}
-        </p>
+      <p className="min-w-0 text-xs font-medium leading-snug text-storm-navy">
+        {certificationCaption(cert, estimatedHours)}
         {cert.totalCourses > 1 ? (
-          <p className="mt-0.5 text-[10px] text-storm-navy/55">
-            {formatHours(estimatedHours)}
-          </p>
+          <span className="font-normal text-storm-navy/55">
+            {" "}
+            · {formatHours(estimatedHours)}
+          </span>
         ) : null}
-      </div>
+      </p>
     </div>
   );
 }
@@ -71,26 +70,24 @@ export function CourseCard({ course }: { course: Course }) {
       className="block rounded-xl border border-storm-light-blue/60 bg-white p-5 shadow-sm no-underline transition-shadow hover:shadow-md"
     >
       <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <Badge variant="info">{course.category}</Badge>
-          {course.progress === 100 && <Badge variant="success">Complete</Badge>}
-        </div>
-        {certs.length > 0 ? (
-          <div className="flex shrink-0 flex-col items-end gap-2">
-            {certs.map((cert) => (
-              <CourseCertBadge
-                key={cert.ruleId}
-                cert={cert}
-                estimatedHours={course.estimatedHours}
-              />
-            ))}
-          </div>
-        ) : null}
+        <h3 className="font-title min-w-0 text-lg font-bold text-storm-navy">
+          {course.title}
+        </h3>
+        {course.progress === 100 ? <Badge variant="success">Complete</Badge> : null}
       </div>
 
-      <h3 className="font-title mt-3 text-lg font-bold text-storm-navy">
-        {course.title}
-      </h3>
+      {certs.length > 0 ? (
+        <div className="mt-2 flex flex-col gap-1.5">
+          {certs.map((cert) => (
+            <CourseCertBadge
+              key={cert.ruleId}
+              cert={cert}
+              estimatedHours={course.estimatedHours}
+            />
+          ))}
+        </div>
+      ) : null}
+
       <p className="mt-2 line-clamp-2 text-sm text-storm-navy/70">
         {course.description}
       </p>

@@ -323,74 +323,51 @@ export async function getCourseGradesReport(courseId: string) {
   });
   const examIds = courseExams.map((e) => e.id);
 
-  const [totalItems, enrollments, progressRows, attempts] = await Promise.all([
-    prisma.courseItem.count({ where: { courseId, archived: false } }),
-    prisma.enrollment.findMany({
-      where: { courseId },
-      include: { user: { select: { id: true, name: true, email: true } } },
-    }),
-    prisma.courseItemProgress.findMany({
-      where: { courseItem: { courseId, archived: false } },
-      select: { userId: true, status: true },
-    }),
-    examIds.length
-      ? prisma.examAttempt.findMany({
-          where: {
-            examId: { in: examIds },
-            status: { in: [...SUBMITTED_STATUSES] },
-          },
-          orderBy: { completedAt: "desc" },
-        })
-      : Promise.resolve([]),
-  ]);
+  const [totalItems, enrollments, progressRows, attempts, allUsers] =
+    await Promise.all([
+      prisma.courseItem.count({ where: { courseId, archived: false } }),
+      prisma.enrollment.findMany({
+        where: { courseId },
+        select: { userId: true },
+      }),
+      prisma.courseItemProgress.findMany({
+        where: { courseItem: { courseId, archived: false } },
+        select: { userId: true, status: true },
+      }),
+      examIds.length
+        ? prisma.examAttempt.findMany({
+            where: {
+              examId: { in: examIds },
+              status: { in: [...SUBMITTED_STATUSES] },
+            },
+            orderBy: { completedAt: "desc" },
+          })
+        : Promise.resolve([]),
+      // Full org roster so admins can see who has not started.
+      prisma.user.findMany({
+        where: { archived: false },
+        select: { id: true, name: true, email: true },
+        orderBy: [{ name: "asc" }, { email: "asc" }],
+      }),
+    ]);
 
-  const attemptsInCourse = attempts;
+  const enrolledIds = new Set(enrollments.map((e) => e.userId));
+
   const examSummariesByUser = buildExamSummariesByUser(
-    attemptsInCourse.map((a) => ({
+    attempts.map((a) => ({
       ...a,
       exam: { title: courseExams.find((e) => e.id === a.examId)?.title ?? "" },
     })),
   );
 
   const completedByUser = new Map<string, number>();
-  const userIdsFromProgress = new Set<string>();
   for (const p of progressRows) {
-    userIdsFromProgress.add(p.userId);
     if (p.status === "COMPLETED") {
       completedByUser.set(p.userId, (completedByUser.get(p.userId) ?? 0) + 1);
     }
   }
 
-  const userMap = new Map<
-    string,
-    { id: string; name: string | null; email: string; enrolled: boolean }
-  >();
-  for (const e of enrollments) {
-    userMap.set(e.userId, {
-      id: e.user.id,
-      name: e.user.name,
-      email: e.user.email,
-      enrolled: true,
-    });
-  }
-  const missingUserIds = [
-    ...new Set([
-      ...userIdsFromProgress,
-      ...examSummariesByUser.keys(),
-    ]),
-  ].filter((id) => !userMap.has(id));
-
-  if (missingUserIds.length) {
-    const extraUsers = await prisma.user.findMany({
-      where: { id: { in: missingUserIds }, archived: false },
-      select: { id: true, name: true, email: true },
-    });
-    for (const u of extraUsers) {
-      userMap.set(u.id, { ...u, enrolled: false });
-    }
-  }
-
-  const learners: CourseLearnerGradeRow[] = [...userMap.values()]
+  const learners: CourseLearnerGradeRow[] = allUsers
     .map((user) => {
       const userExamSummaries = examSummariesByUser.get(user.id) ?? [];
       const exams: CourseExamGradeCell[] = courseExams.map((exam) => {
@@ -411,23 +388,21 @@ export async function getCourseGradesReport(courseId: string) {
         userId: user.id,
         name: user.name,
         email: user.email,
-        enrolled: user.enrolled,
+        enrolled: enrolledIds.has(user.id),
         completedItems: completed,
         totalItems,
         progressPct: progressPct(completed, totalItems),
         exams,
       };
     })
-    .filter(
-      (row) =>
-        row.enrolled ||
-        row.completedItems > 0 ||
-        row.exams.some((e) => e.attemptCount > 0),
-    )
     .sort((a, b) => {
       const aPending = a.exams.some((e) => e.pendingGrade);
       const bPending = b.exams.some((e) => e.pendingGrade);
       if (aPending !== bPending) return aPending ? -1 : 1;
+      // Enrolled / in-progress first, then not started
+      const aActive = a.enrolled || a.completedItems > 0 || a.exams.some((e) => e.attemptCount > 0);
+      const bActive = b.enrolled || b.completedItems > 0 || b.exams.some((e) => e.attemptCount > 0);
+      if (aActive !== bActive) return aActive ? -1 : 1;
       return (a.name ?? a.email).localeCompare(b.name ?? b.email);
     });
 

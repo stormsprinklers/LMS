@@ -25,7 +25,7 @@ export function GradesViewTabs({
       </Link>
       {showPublished && (
         <Link href="/admin/grades?view=published" className={tabClass("published")}>
-          Published grades
+          Progress & grades
         </Link>
       )}
     </div>

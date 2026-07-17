@@ -85,6 +85,22 @@ export async function requireCourseAdmin(courseId: string) {
   return session;
 }
 
+/**
+ * View org-wide learner progress for a course.
+ * Admins and managers: any course. Course graders: only assigned courses.
+ */
+export async function requireViewCourseProgress(courseId: string) {
+  const session = await requireUser();
+  const role = (session.user as { role?: string }).role;
+  if (isStaff(role)) return session;
+
+  const assignment = await prisma.courseAdmin.findUnique({
+    where: { userId_courseId: { userId: session.user.id, courseId } },
+  });
+  if (!assignment) redirect("/");
+  return session;
+}
+
 export async function canGradeExam(userId: string, examId: string) {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) return false;
