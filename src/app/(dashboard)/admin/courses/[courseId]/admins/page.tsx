@@ -9,9 +9,9 @@ import { CourseAdminsForm } from "./CourseAdminsForm";
 export default async function CourseAdminsPage({
   params,
 }: {
-  params: Promise<{ slug: string }>;
+  params: Promise<{ courseId: string }>;
 }) {
-  const { slug } = await params;
+  const { courseId: slug } = await params;
   const course = await getCourseBySlugAdmin(slug);
   if (!course) notFound();
 
